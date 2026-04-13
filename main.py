@@ -17,7 +17,7 @@ ADMIN_ID = 1316137517  # <-- ВСТАВЬ СВОЙ ID
 
 
 MIN_BET = 10
-MAX_BETS_PER_PLAYER = 30
+MAX_BETS_PER_PLAYER = 20
 GO_DELAY = 10
 
 BONUS_MIN = 100
@@ -114,10 +114,13 @@ def handle(m):
     lower = text.lower()
     is_private = m.chat.type == "private"
 
-
     name = get_name(m.from_user)
     user = get_user(uid, name)
-
+    # обновляем имя если изменилось
+    if user["name"] != name:
+        cursor.execute("UPDATE users SET name=? WHERE user_id=?", (name, uid))
+        conn.commit()
+        user["name"] = name
 
     # ====================== ПЕРЕВОД ДЕНЕГ ======================
     if lower.startswith("п"):
@@ -430,7 +433,7 @@ def handle(m):
         for uid, bts in bets.items():
             u = get_user(uid, "Игрок")
             win = 0
-            user_text = f"👤 {uid}:\n"
+            user_text = f"👤 {u['name']}:\n"
 
             for amount, t, mult in bts:
                 ok = False
@@ -479,7 +482,7 @@ def handle(m):
     # ====================== ПРОФИЛЬ ======================
     if text == "👤 Профиль":
         u = user
-        send(chat, f"{u['name']}\n💰 {u['coins']}\n🏆 {u['wins']}")
+        send(chat, f"👤 {u['name']}\n\n💰 Баланс: {u['coins']}\n🏆 Победы: {u['wins']}")
 
     if lower in ["б", "баланс"]:
         send(chat, f"💰 Баланс: {user['coins']} Угадайек")
