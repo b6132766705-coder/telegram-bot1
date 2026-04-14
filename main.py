@@ -487,16 +487,16 @@ def handle(m):
         send(chat, full_report)
         return
 
-    # ====================== ПРОФИЛЬ ======================
-    if text == "👤 Профиль":
-        u = user
-      balance = f"{u['coins']:,}".replace(",", " ")
-send(chat, f"{u['name']}\n💰 {format_money(u['coins'])}\n🏆 {u['wins']}")
+# ====================== ПРОФИЛЬ ======================
+if text == "👤 Профиль":
+    u = user
+    send(chat, f"{u['name']}\n💰 {format_money(u['coins'])}\n🏆 {u['wins']}")
+    return
 
-    if lower in ["б", "баланс"]:
-    balance = f"{user['coins']:,}".replace(",", " ")
-send(chat, f"💰 Баланс: {format_money(user['coins'])} Угадайек")
-        return
+# ====================== БАЛАНС ======================
+if lower in ["б", "баланс"]:
+    send(chat, f"💰 Баланс: {format_money(user['coins'])} Угадайек")
+    return
 
     # ====================== РЕЙТИНГ ======================
     if text == "🏆 Рейтинг":
