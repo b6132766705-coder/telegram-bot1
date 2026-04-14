@@ -84,7 +84,16 @@ def send(chat_id, text, kb=None):
     bot.send_message(chat_id, text, reply_markup=kb)
 
 def format_money(n):
-    return f"{n:,}".replace(",", " ")
+    full = f"{n:,}".replace(",", " ")
+
+    if n >= 1_000_000:
+        short = f"{round(n / 1_000_000, 1)} млн"
+    elif n >= 1_000:
+        short = f"{round(n / 1_000, 1)} тыс"
+    else:
+        return full
+
+    return f"{full} ({short})"
 
 def format_full(n):
     if n >= 1_000_000:
