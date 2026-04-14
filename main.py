@@ -84,6 +84,9 @@ def get_name(u):
 def send(chat_id, text, kb=None):
     bot.send_message(chat_id, text, reply_markup=kb)
 
+def format_money(n):
+    return f"{n:,}".replace(",", " ")
+
 def spin():
     n = random.randint(0, 36)
     if n == 0:
@@ -487,10 +490,12 @@ def handle(m):
     # ====================== ПРОФИЛЬ ======================
     if text == "👤 Профиль":
         u = user
-        send(chat, f"👤 {u['name']}\n\n💰 Баланс: {u['coins']}\n🏆 Победы: {u['wins']}")
+      balance = f"{u['coins']:,}".replace(",", " ")
+send(chat, f"{u['name']}\n💰 {format_money(u['coins'])}\n🏆 {u['wins']}")
 
     if lower in ["б", "баланс"]:
-        send(chat, f"💰 Баланс: {user['coins']} Угадайек")
+    balance = f"{user['coins']:,}".replace(",", " ")
+send(chat, f"💰 Баланс: {format_money(user['coins'])} Угадайек")
         return
 
     # ====================== РЕЙТИНГ ======================
@@ -500,7 +505,7 @@ def handle(m):
 
         txt = "🏆 Топ игроков:\n\n"
         for i, (name, coins) in enumerate(top, 1):
-            txt += f"{i}. {name} — {coins}\n"
+          txt += f"{i}. {name} — {format_money(coins)}\n"
 
         send(chat, txt)
 
