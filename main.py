@@ -488,7 +488,7 @@ def handle(m):
         return
 
 # ====================== ПРОФИЛЬ ======================
-if text == "👤 Профиль":
+    if text == "👤 Профиль":
     u = user
     send(chat, f"{u['name']}\n💰 {format_money(u['coins'])}\n🏆 {u['wins']}")
     return
