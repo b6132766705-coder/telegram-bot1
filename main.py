@@ -5,9 +5,12 @@ import json
 import os
 import time
 import threading
-import sqlite3
+import psycopg2
+import os
 
-conn = sqlite3.connect("casino.db", check_same_thread=False)
+DATABASE_URL = os.getenv("DATABASE_URL")
+
+conn = psycopg2.connect(DATABASE_URL)
 cursor = conn.cursor()
 
 # ====================== НАСТРОЙКИ ======================
@@ -26,25 +29,26 @@ BONUS_MAX = 1000
 bot = telebot.TeleBot(TOKEN)
 
 # ====================== ДАННЫЕ ======================
+# ====================== ДАННЫЕ ======================
 cursor.execute("""
 CREATE TABLE IF NOT EXISTS users (
-    user_id TEXT PRIMARY KEY,
+    user_id BIGINT PRIMARY KEY,
     name TEXT,
     coins INTEGER,
     wins INTEGER,
-    last_bonus REAL
+    last_bonus DOUBLE PRECISION
 )
 """)
 conn.commit()
 
 # ====================== ФУНКЦИИ ДАННЫЕ ======================
 def get_user(uid, name):
-    cursor.execute("SELECT * FROM users WHERE user_id=?", (uid,))
+    cursor.execute("SELECT * FROM users WHERE user_id=%s", (uid,))
     user = cursor.fetchone()
 
     if not user:
         cursor.execute(
-            "INSERT INTO users VALUES (?, ?, ?, ?, ?)",
+            "INSERT INTO users (user_id, name, coins, wins, last_bonus) VALUES (%s, %s, %s, %s, %s)",
             (uid, name, 50, 0, 0)
         )
         conn.commit()
@@ -57,14 +61,14 @@ def get_user(uid, name):
         "name": user[1]
     }
 
-
 def update_user(uid, coins=None, wins=None, last_bonus=None):
     if coins is not None:
-        cursor.execute("UPDATE users SET coins=? WHERE user_id=?", (coins, uid))
+        cursor.execute("UPDATE users SET coins=%s WHERE user_id=%s", (coins, uid))
     if wins is not None:
-        cursor.execute("UPDATE users SET wins=? WHERE user_id=?", (wins, uid))
+        cursor.execute("UPDATE users SET wins=%s WHERE user_id=%s", (wins, uid))
     if last_bonus is not None:
-        cursor.execute("UPDATE users SET last_bonus=? WHERE user_id=?", (last_bonus, uid))
+        cursor.execute("UPDATE users SET last_bonus=%s WHERE user_id=%s", (last_bonus, uid))
+
     conn.commit()
 
 # ====================== ФАЙЛ ======================
@@ -118,9 +122,10 @@ def handle(m):
     user = get_user(uid, name)
     # обновляем имя если изменилось
     if user["name"] != name:
-        cursor.execute("UPDATE users SET name=? WHERE user_id=?", (name, uid))
+        cursor.execute("UPDATE users SET name=%s WHERE user_id=%s", (name, uid))
         conn.commit()
         user["name"] = name
+
 
     # ====================== ПЕРЕВОД ДЕНЕГ ======================
     if lower.startswith("п"):
