@@ -487,17 +487,16 @@ def handle(m):
         send(chat, full_report)
         return
 
-# ====================== ПРОФИЛЬ ======================
+    # ====================== ПРОФИЛЬ ======================
     if text == "👤 Профиль":
-    u = user
-    send(chat, f"{u['name']}\n💰 {format_money(u['coins'])}\n🏆 {u['wins']}")
-    return
+        u = user
+        send(chat, f"{u['name']}\n💰 {format_money(u['coins'])}\n🏆 {u['wins']}")
+        return
 
-# ====================== БАЛАНС ======================
-if lower in ["б", "баланс"]:
-    send(chat, f"💰 Баланс: {format_money(user['coins'])} Угадайек")
-    return
-
+    # ====================== БАЛАНС ======================
+    if lower in ["б", "баланс"]:
+        send(chat, f"💰 Баланс: {format_money(user['coins'])} Угадайек")
+        return
     # ====================== РЕЙТИНГ ======================
     if text == "🏆 Рейтинг":
         cursor.execute("SELECT name, coins FROM users ORDER BY coins DESC LIMIT 10")
