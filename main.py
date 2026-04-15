@@ -216,11 +216,11 @@ def handle(m):
                     )
                     conn.commit()
                     send(chat, f"🎉 Уровень повышен до {level}!")
-                else:
-                    send(chat, "❌ Отменено")
+            else:
+                send(chat, "❌ Отменено")
                     
-                    del user_states[uid]
-                    return
+                del user_states[uid]
+                return
 
 
         # сохраняем уровень и деньги
