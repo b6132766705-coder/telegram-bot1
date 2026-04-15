@@ -149,14 +149,14 @@ def handle(m):
     user = get_user(uid, name)
 
     # ====================== КНОПКА ПОВЫШЕНИЯ УРОВНЯ ======================
-if text == "⬆️ Повысить уровень":
-    user_states[uid] = "upgrade_level"
-
-    level = user.get("level", 1)
-    price = level_price(level)
-
-    send(chat, f"⬆️ Повысить уровень?\n💰 Цена: {format_money(price)}\n\nНапиши: да / нет")
-    return
+    if text == "⬆️ Повысить уровень":
+        user_states[uid] = "upgrade_level"
+        
+        level = user.get("level", 1)
+        price = level_price(level)
+        
+        send(chat, f"⬆️ Повысить уровень?\n💰 Цена: {format_money(price)}\n\nНапиши: да / нет")
+        return
 
     # обновляем имя если изменилось
     if user["name"] != name:
