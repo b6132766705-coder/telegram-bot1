@@ -26,6 +26,7 @@ active_bets = {}
 # Цвета рулетки
 RED_NUMS = [1, 3, 5, 7, 9, 12, 14, 16, 18, 19, 21, 23, 25, 27, 30, 32, 34, 36]
 
+
 # --- КЛАВИАТУРА ---
 def get_main_keyboard():
     builder = ReplyKeyboardBuilder()
@@ -39,7 +40,6 @@ def get_main_keyboard():
     builder.row(types.InlineKeyboardButton(text="📝 Мои ставки", callback_data="my_bets"))
     builder.row(types.InlineKeyboardButton(text="❌ Отменить всё", callback_data="cancel_bets"))
     return builder.as_markup()
-
 
 # --- МАТЕМАТИКА РУЛЕТКИ ---
 def check_win(bet_target, res_num):
