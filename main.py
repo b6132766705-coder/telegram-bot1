@@ -20,20 +20,22 @@ class GuessState(StatesGroup):
 active_bets = {}
 RED_NUMS = [1, 3, 5, 7, 9, 12, 14, 16, 18, 19, 21, 23, 25, 27, 30, 32, 34, 36]
 
-# --- КЛАВИАТУРЫ ---
-def get_main_keyboard():
+#----------Клавиатура--------
+def get_main_keyboard(user_id=None, chat_id=None):
     builder = ReplyKeyboardBuilder()
     builder.button(text="👤 Профиль")
     builder.button(text="🔢 Угадай число")
     builder.button(text="📜 Помощь")
-    builder.adjust(2)
+    
+    # Если переданы id и у пользователя есть ставки в этом чате — добавляем кнопки управления
+    if user_id and chat_id:
+        if active_bets.get(chat_id, {}).get(user_id):
+            builder.button(text="📝 Мои ставки")
+            builder.button(text="❌ Отменить всё")
+    
+    builder.adjust(2) # Кнопки будут по 2 в ряд
     return builder.as_markup(resize_keyboard=True)
 
-def get_bet_control_keyboard():
-    builder = InlineKeyboardBuilder()
-    builder.row(types.InlineKeyboardButton(text="📝 Мои ставки", callback_data="my_bets"))
-    builder.row(types.InlineKeyboardButton(text="❌ Отменить всё", callback_data="cancel_bets"))
-    return builder.as_markup()
 
 # --- МАТЕМАТИКА ---
 def check_win(bet_target, res_num):
@@ -101,6 +103,43 @@ async def process_guess(message: types.Message, state: FSMContext):
 async def btn_help(message: types.Message):
     await message.answer("🎰 **Рулетка:** `сумма` `цели` (100 к 7)\nНапиши **'го'** для запуска!", parse_mode="Markdown")
 
+# Обработка текстовой кнопки "📝 Мои ставки"
+@dp.message(F.text == "📝 Мои ставки")
+async def txt_my_bets(message: types.Message):
+    user_bets = active_bets.get(message.chat.id, {}).get(message.from_user.id, [])
+    if not user_bets:
+        return await message.answer("У тебя сейчас нет активных ставок.")
+    
+    text = "📊 **Твои текущие ставки:**\n"
+    total = 0
+    for b in user_bets:
+        text += f"• {b['amount']} ➔ {b['target']}\n"
+        total += b['amount']
+    text += f"\n💰 **Всего:** {total}"
+    await message.answer(text, parse_mode="Markdown")
+
+# Обработка текстовой кнопки "❌ Отменить всё"
+@dp.message(F.text == "❌ Отменить всё")
+async def txt_cancel_bets(message: types.Message):
+    chat_id, user_id = message.chat.id, message.from_user.id
+    user_bets = active_bets.get(chat_id, {}).get(user_id, [])
+    
+    if not user_bets:
+        return await message.answer("Нечего отменять!")
+    
+    total_return = sum(b['amount'] for b in user_bets)
+    async with async_session() as session:
+        user = await session.get(User, user_id)
+        user.balance += total_return
+        await session.commit()
+    
+    del active_bets[chat_id][user_id]
+    await message.answer(
+        f"❌ Ставки отменены! **+{total_return}** 🔘 возвращены на баланс.",
+        reply_markup=get_main_keyboard(), # Убираем кнопки отмены из меню
+        parse_mode="Markdown"
+    )
+
 # --- СТАВКИ ---
 @dp.message(lambda m: re.match(r'^(все|\d+)\s+', m.text.lower()))
 async def place_smart_bet(message: types.Message):
@@ -126,8 +165,14 @@ async def place_smart_bet(message: types.Message):
     active_bets[chat_id].setdefault(message.from_user.id, []).extend(user_bets)
     
     report = f"✅ {message.from_user.first_name}, ставки приняты!\n💸 Потрачено: {total_cost}\n\n📊 Твои ставки:\n"
-    for b in user_bets: report += f"• {b['amount']} ➔ {b['target']}\n"
-    await message.answer(report, reply_markup=get_bet_control_keyboard())
+    for b in user_bets: report += f"• {b['amount']} ➔ {b['target']}\n
+       # Замени последнюю строчку в place_smart_bet на эту:
+    await message.answer(
+        report, 
+        reply_markup=get_main_keyboard(message.from_user.id, message.chat.id)
+    )
+
+
 
 # --- ЗАПУСК РУЛЕТКИ ---
 @dp.message(F.text.lower() == "го")
@@ -164,8 +209,10 @@ async def spin_roulette(message: types.Message):
             final_report += f"💰 Итог: +{user_total_win}\n\n"
         await session.commit()
 
-    active_bets[chat_id] = {}
-    await message.answer(final_report)
+     # В самом конце функции spin_roulette замени отправку отчета:
+    active_bets[chat_id] = {} # Очищаем стол
+    await message.answer(final_report, reply_markup=get_main_keyboard())
+
 
 # --- УПРАВЛЕНИЕ ---
 @dp.message(F.text.lower() == "лог")
