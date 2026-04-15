@@ -37,8 +37,8 @@ CREATE TABLE IF NOT EXISTS users (
     wins INTEGER,
     last_bonus DOUBLE PRECISION,
     level INTEGER DEFAULT 1
-)
-""")
+    )
+    """)
 conn.commit()
 
 # ====================== ФУНКЦИИ ДАННЫЕ ======================
