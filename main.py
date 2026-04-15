@@ -114,9 +114,9 @@ if uid in user_states:
 
         else:
             send(chat, "❌ Отменено")
-
-        del user_states[uid]
-        return
+            
+            del user_states[uid]
+            return
 
 # ====================== ФАЙЛ ======================
 current_bets = {}
