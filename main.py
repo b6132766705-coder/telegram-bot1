@@ -183,7 +183,7 @@ def handle(m):
         conn.commit()
         user["name"] = name
 
-               # ====================== ОБРАБОТКА СОСТОЯНИЯ ======================
+               # ====================== ОБРАБОТКА СОСТОЯНИЯ =====================
 if uid in user_states:
 
     if user_states[uid] == "upgrade_level":
