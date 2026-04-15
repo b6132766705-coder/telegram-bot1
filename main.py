@@ -35,11 +35,13 @@ def get_main_keyboard():
     builder.button(text="📜 Помощь")
     builder.adjust(2)
     return builder.as_markup(resize_keyboard=True)
-    def get_bet_control_keyboard():
+
+def get_bet_control_keyboard():
     builder = InlineKeyboardBuilder()
     builder.row(types.InlineKeyboardButton(text="📝 Мои ставки", callback_data="my_bets"))
     builder.row(types.InlineKeyboardButton(text="❌ Отменить всё", callback_data="cancel_bets"))
     return builder.as_markup()
+
 
 # --- МАТЕМАТИКА РУЛЕТКИ ---
 def check_win(bet_target, res_num):
