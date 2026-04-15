@@ -70,6 +70,25 @@ async def show_profile(message: types.Message):
         user = await session.get(User, message.from_user.id)
         await message.answer(f"👤 Игрок: {message.from_user.first_name}\n💰 Баланс: {user.balance} 🔘\n🏆 Побед: {user.wins}")
 
+# --- ОБРАБОТЧИК ДЛЯ КНОПКИ "🔢 Угадай число" ---
+@dp.message(F.text == "🔢 Угадай число")
+async def btn_start_guess(message: types.Message, state: FSMContext):
+    # Просто вызываем ту же функцию, что и для команды /guess
+    await start_guess(message, state)
+
+# --- ОБРАБОТЧИК ДЛЯ КНОПКИ "📜 Помощь" ---
+@dp.message(F.text == "📜 Помощь")
+async def btn_help(message: types.Message):
+    help_text = (
+        "🎮 **Как играть?**\n\n"
+        "🔢 **Угадай число:** Я загадываю число от 1 до 10, у тебя 3 попытки.\n\n"
+        "🎰 **Рулетка (в чатах):**\n"
+        "Пиши: `сумма` `цели` через пробел.\n"
+        "Пример: `100 к 7 чт 1-5` — это 4 ставки по 100.\n"
+        "Затем напиши **'го'**, чтобы крутить!"
+    )
+    await message.answer(help_text, parse_mode="Markdown")
+
 # --- НОВЫЙ ОБРАБОТЧИК МУЛЬТИ-СТАВОК (ОДНА СУММА - МНОГО ЦЕЛЕЙ) ---
 @dp.message(lambda m: re.match(r'^\d+\s+', m.text)) # Если сообщение начинается с числа
 async def place_smart_bet(message: types.Message):
