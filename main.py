@@ -195,26 +195,25 @@ def handle(m):
         user["name"] = name
 
 # ====================== ОБРАБОТКА СОСТОЯНИЯ ======================
-if uid in user_states:
-
-    if user_states[uid] == "upgrade_level":
-
-        if lower == "да":
-            level = user.get("level", 1)
-            price = level_price(level)
-
-            if user["coins"] < price:
-                send(chat, "❌ Недостаточно денег")
-            else:
-                user["coins"] -= price
-                level += 1
-
-                send(chat, f"🎉 Уровень повышен до {level}!")
-        else:
-            send(chat, "❌ Отменено")
+    if uid in user_states:
+        
+        if user_states[uid] == "upgrade_level":
             
-            del user_states[uid]
-            return
+            if lower == "да":
+                level = user.get("level", 1)
+                price = level_price(level)
+                
+                if user["coins"] < price:
+                    send(chat, "❌ Недостаточно денег")
+                else:
+                    user["coins"] -= price
+                    level += 1
+                    
+                    send(chat, f"🎉 Уровень повышен до {level}!")
+            else:
+                send(chat, "❌ Отменено")
+                del user_states[uid]
+                return
 
 
         # сохраняем уровень и деньги
