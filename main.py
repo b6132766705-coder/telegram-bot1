@@ -43,22 +43,24 @@ conn.commit()
 
 # ====================== ФУНКЦИИ ДАННЫЕ ======================
 def get_user(uid, name):
-    try:
-        user = db.fetchone(...)  # твой запрос
+    cursor.execute("SELECT * FROM users WHERE user_id=%s", (uid,))
+    user = cursor.fetchone()
 
-        if not user:
-            return {
-                "id": uid,
-                "name": name,
-                "level": 1
-            }
+    if not user:
+        cursor.execute(
+            "INSERT INTO users (user_id, name, coins, wins, last_bonus, level) VALUES (%s, %s, %s, %s, %s, %s)",
+            (uid, name, 50, 0, 0, 1)
+        )
+        conn.commit()
+        return {"coins": 50, "wins": 0, "last_bonus": 0, "level": 1, "name": name}
 
-        return {
-            "id": user[0],
-            "name": user[1],
-            "coins": user[2],
-            "level": user[5] if len(user) > 5 else 1
-        }
+    return {
+        "coins": user[2],
+        "wins": user[3],
+        "last_bonus": user[4],
+        "level": user[5],
+        "name": user[1]
+    }
 
     except Exception as e:
         print("DB ERROR:", e)
@@ -94,6 +96,17 @@ def send(chat_id, text, kb=None):
 
 def format_money(n):
     full = f"{n:,}".replace(",", " ")
+
+    if n >= 1_000_000:
+        short = f"{round(n / 1_000_000, 1)} млн"
+    elif n >= 1_000:
+        short = f"{round(n / 1_000, 1)} тыс"
+    else:
+        return full
+
+    return f"{full} ({short})"
+
+
 def level_price(level):
     return 500 * level
 
@@ -145,7 +158,7 @@ def handle(m):
     if not m.text:
         return
 
-    uid = str(m.from_user.id)
+    uid = m.from_user.id
     chat = m.chat.id
     text = m.text.strip()
     lower = text.lower()
@@ -171,19 +184,33 @@ def handle(m):
         user["name"] = name
 
                # ====================== ОБРАБОТКА СОСТОЯНИЯ ======================
-    if uid in user_states:
-        
-        if user_states[uid] == "upgrade_level":
-            
-            if lower == "да":
-                level = user.get("level", 1)
-                price = level_price(level)
-                
-                if user["coins"] < price:
-                    send(chat, "❌ Недостаточно денег")
-                else:
-                    user["coins"] -= price
-                    level += 1
+if uid in user_states:
+
+    if user_states[uid] == "upgrade_level":
+
+        if lower == "да":
+            level = user.get("level", 1)
+            price = level_price(level)
+
+            if user["coins"] < price:
+                send(chat, "❌ Недостаточно денег")
+            else:
+                user["coins"] -= price
+                level += 1
+
+                cursor.execute(
+                    "UPDATE users SET coins=%s, level=%s WHERE user_id=%s",
+                    (user["coins"], level, uid)
+                )
+                conn.commit()
+
+                send(chat, f"🎉 Уровень повышен до {level}!")
+
+        else:
+            send(chat, "❌ Отменено")
+
+        del user_states[uid]  # ← ВАЖНО: всегда удаляется
+        return
 
                     # сохраняем уровень и деньги
                     cursor.execute(
@@ -192,13 +219,6 @@ def handle(m):
                     )
                     conn.commit()
                     
-                    send(chat, f"🎉 Уровень повышен до {level}!")
-                
-            else:
-                send(chat, "❌ Отменено")
-                
-                del user_states[uid]
-                return
         
     # ====================== ПРОФИЛЬ ======================
     if text == "👤 Профиль":
