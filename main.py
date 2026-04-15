@@ -89,6 +89,35 @@ def update_user(uid, coins=None, wins=None, last_bonus=None):
 
     conn.commit()
 
+# ====================== ОБРАБОТКА СОСТОЯНИЯ ======================
+if uid in user_states:
+
+    if user_states[uid] == "upgrade_level":
+
+        if lower == "да":
+            level = user.get("level", 1)
+            price = level_price(level)
+
+            if user["coins"] < price:
+                send(chat, "❌ Недостаточно денег")
+            else:
+                user["coins"] -= price
+                level += 1
+
+                cursor.execute(
+                    "UPDATE users SET coins=%s, level=%s WHERE user_id=%s",
+                    (user["coins"], level, uid)
+                )
+                conn.commit()
+
+                send(chat, f"🎉 Уровень повышен до {level}!")
+
+        else:
+            send(chat, "❌ Отменено")
+
+        del user_states[uid]
+        return
+
 # ====================== ФАЙЛ ======================
 current_bets = {}
 user_games = {}
