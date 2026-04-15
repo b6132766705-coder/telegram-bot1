@@ -43,24 +43,30 @@ conn.commit()
 
 # ====================== ФУНКЦИИ ДАННЫЕ ======================
 def get_user(uid, name):
-    cursor.execute("SELECT * FROM users WHERE user_id=%s", (uid,))
-    user = cursor.fetchone()
+    try:
+        user = db.fetchone(...)  # твой запрос
 
-    if not user:
-        cursor.execute(
-            "INSERT INTO users (user_id, name, coins, wins, last_bonus, level) VALUES (%s, %s, %s, %s, %s, %s)",
-            (uid, name, 50, 0, 0, 1)
-        )
-        conn.commit()
-        return {"coins": 50, "wins": 0, "last_bonus": 0, "name": name, "level": 1}
+        if not user:
+            return {
+                "id": uid,
+                "name": name,
+                "level": 1
+            }
 
-    return {
-        "coins": user[2],
-        "wins": user[3],
-        "last_bonus": user[4],
-        "name": user[1],
-        "level": user[5]
-    }
+        return {
+            "id": user[0],
+            "name": user[1],
+            "coins": user[2],
+            "level": user[5] if len(user) > 5 else 1
+        }
+
+    except Exception as e:
+        print("DB ERROR:", e)
+        return {
+            "id": uid,
+            "name": name,
+            "level": 1
+        }
 
 def update_user(uid, coins=None, wins=None, last_bonus=None):
     if coins is not None:
