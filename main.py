@@ -15,12 +15,7 @@ conn = psycopg2.connect(DATABASE_URL)
 cursor = conn.cursor()
 
 # ====================== НАСТРОЙКИ ======================
-ADMIN_ID = 1316137517
-
 MIN_BET = 10
-MAX_BETS_PER_PLAYER = 30
-GO_DELAY = 10
-
 BONUS_MIN = 100
 BONUS_MAX = 1000
 
@@ -31,18 +26,14 @@ CREATE TABLE IF NOT EXISTS users (
     name TEXT,
     coins INTEGER,
     wins INTEGER,
-    last_bonus DOUBLE PRECISION,
-    level INTEGER DEFAULT 1
+    last_bonus DOUBLE PRECISION
 )
 """)
 conn.commit()
 
 # ====================== ДАННЫЕ ======================
-current_bets = {}
 user_games = {}
-bet_timers = {}
-roulette_history = {}
-user_states = {}
+current_bets = {}
 
 # ====================== ВСПОМОГАТЕЛЬНОЕ ======================
 def get_name(u):
@@ -54,9 +45,6 @@ def send(chat_id, text, kb=None):
 def format_money(n):
     return f"{n:,}".replace(",", " ")
 
-def level_price(level):
-    return 500 * level
-
 # ====================== USER ======================
 def get_user(uid, name):
     cursor.execute("SELECT * FROM users WHERE user_id=%s", (uid,))
@@ -64,29 +52,26 @@ def get_user(uid, name):
 
     if not user:
         cursor.execute(
-            "INSERT INTO users VALUES (%s,%s,%s,%s,%s,%s)",
-            (uid, name, 50, 0, 0, 1)
+            "INSERT INTO users VALUES (%s,%s,%s,%s,%s)",
+            (uid, name, 50, 0, 0)
         )
         conn.commit()
-        return {"coins":50,"wins":0,"last_bonus":0,"level":1,"name":name}
+        return {"coins":50,"wins":0,"last_bonus":0,"name":name}
 
     return {
         "coins": user[2],
         "wins": user[3],
         "last_bonus": user[4],
-        "level": user[5],
         "name": user[1]
     }
 
-def update_user(uid, coins=None, wins=None, last_bonus=None, level=None):
+def update_user(uid, coins=None, wins=None, last_bonus=None):
     if coins is not None:
         cursor.execute("UPDATE users SET coins=%s WHERE user_id=%s",(coins,uid))
     if wins is not None:
         cursor.execute("UPDATE users SET wins=%s WHERE user_id=%s",(wins,uid))
     if last_bonus is not None:
         cursor.execute("UPDATE users SET last_bonus=%s WHERE user_id=%s",(last_bonus,uid))
-    if level is not None:
-        cursor.execute("UPDATE users SET level=%s WHERE user_id=%s",(level,uid))
     conn.commit()
 
 # ====================== РУЛЕТКА ======================
@@ -104,7 +89,7 @@ def keyboard(private):
         kb.add("🏆 Рейтинг","🎁 Бонус")
     else:
         kb.add("🎮 Играть","🎰 Рулетка")
-        kb.add("📜 История","👤 Профиль")
+        kb.add("👤 Профиль")
     return kb
 
 # ====================== START ======================
@@ -127,27 +112,12 @@ def handle(m):
     name = get_name(m.from_user)
     user = get_user(uid,name)
 
-    # ===== УРОВЕНЬ =====
-    if text == "⬆️ Повысить уровень":
-        price = level_price(user["level"])
-        if user["coins"] < price:
-            send(chat,"❌ Недостаточно денег")
-        else:
-            user["coins"] -= price
-            user["level"] += 1
-            update_user(uid,coins=user["coins"],level=user["level"])
-            send(chat,f"🎉 Уровень {user['level']}")
-        return
-
     # ===== ПРОФИЛЬ =====
     if text == "👤 Профиль":
-        kb = types.ReplyKeyboardMarkup(resize_keyboard=True)
-        kb.add("⬆️ Повысить уровень")
         send(chat,
             f"{user['name']}\n"
             f"💰 {format_money(user['coins'])}\n"
-            f"🏆 {user['wins']}\n"
-            f"🎖 {user['level']}",kb)
+            f"🏆 Победы: {user['wins']}")
         return
 
     # ===== БОНУС =====
@@ -166,23 +136,17 @@ def handle(m):
     # ===== УГАДАЙ =====
     if uid in user_games:
         if not text.isdigit():
-            send(chat,"❌ Число")
+            send(chat,"❌ Введи число")
             return
 
         g = user_games[uid]
         num = int(text)
 
         if num == g["num"]:
-            reward = 10
-            if random.random() < 0.2:
-                reward *= 2
-                send(chat,"🔥 x2!")
-
-            user["coins"] += reward
+            user["coins"] += 10
             user["wins"] += 1
             update_user(uid,coins=user["coins"],wins=user["wins"])
-
-            send(chat,f"🎉 Угадал +{reward}")
+            send(chat,"🎉 Угадал! +10")
             del user_games[uid]
         else:
             g["tries"] -= 1
@@ -190,12 +154,12 @@ def handle(m):
                 send(chat,f"😢 Было {g['num']}")
                 del user_games[uid]
             else:
-                send(chat,f"{'🔼' if num<g['num'] else '🔽'} Осталось {g['tries']}")
+                send(chat,f"{'🔼 Больше' if num<g['num'] else '🔽 Меньше'} ({g['tries']} попытки)")
         return
 
     if text == "🎮 Играть":
         user_games[uid] = {"num":random.randint(1,10),"tries":3}
-        send(chat,"🎮 Угадай 1-10 (3 попытки)")
+        send(chat,"🎮 Угадай число от 1 до 10")
         return
 
     # ===== СТАВКИ =====
@@ -206,11 +170,11 @@ def handle(m):
             bets = parts[1:]
 
             if amount < MIN_BET:
-                send(chat,"❌ Мин ставка")
+                send(chat,"❌ Минимальная ставка 10")
                 return
 
             if user["coins"] < amount*len(bets):
-                send(chat,"❌ Нет денег")
+                send(chat,"❌ Недостаточно денег")
                 return
 
             current_bets.setdefault(chat,{}).setdefault(uid,[])
@@ -225,14 +189,6 @@ def handle(m):
                     t,mult="odd",2
                 elif bet=="чт":
                     t,mult="even",2
-                elif "-" in bet:
-                    try:
-                        s,e=map(int,bet.split("-"))
-                        size=e-s+1
-                        mult=6 if size<=6 else 3 if size<=12 else 2
-                        t=("range",s,e)
-                    except:
-                        continue
                 elif bet.isdigit():
                     t=("num",int(bet))
                     mult=36
@@ -270,16 +226,11 @@ def handle(m):
                 elif t=="black": ok="ЧЁРНОЕ" in col
                 elif t=="odd": ok=eo=="нечётное"
                 elif t=="even": ok=eo=="чётное"
-                elif isinstance(t,tuple) and t[0]=="num":
+                elif isinstance(t,tuple):
                     ok=t[1]==n
-                elif isinstance(t,tuple) and t[0]=="range":
-                    ok=t[1]<=n<=t[2]
 
                 if ok:
-                    prize=amount*mult
-                    if random.random()<0.2:
-                        prize*=2
-                    win+=prize
+                    win+=amount*mult
 
             u["coins"]+=win
             update_user(uid,coins=u["coins"])
