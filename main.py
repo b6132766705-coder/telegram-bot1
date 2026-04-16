@@ -242,38 +242,56 @@ def handle(m):
         send(chat,"Ставь и пиши ГО")
         return
 
-    if lower=="го" and not is_private:
-        if chat not in current_bets:
-            send(chat,"❌ Нет ставок")
-            return
-
-        n,col,eo = spin()
-        result = f"🎰 {col} {n}\n\n"
-
-        for uid,bets in current_bets[chat].items():
-            u = get_user(uid,"игрок")
-            win = 0
-
-            for amount,t,mult in bets:
-                ok=False
-
-                if t=="red": ok="КРАСНОЕ" in col
-                elif t=="black": ok="ЧЁРНОЕ" in col
-                elif t=="odd": ok=eo=="нечётное"
-                elif t=="even": ok=eo=="чётное"
-                elif isinstance(t,tuple):
-                    ok=t[1]==n
-
-                if ok:
-                    win+=amount*mult
-
-            u["coins"]+=win
-            update_user(uid,coins=u["coins"])
-            result+=f"{u['name']} +{win}\n"
-
-        current_bets[chat]={}
-        send(chat,result)
+   # ===== РУЛЕТКА =====
+if lower=="го" and not is_private:
+    if chat not in current_bets:
+        send(chat,"❌ Нет ставок")
         return
+
+    n,col,eo = spin()
+    result = f"🎰 {col} {n}\n\n"
+
+    for uid,bets in current_bets[chat].items():
+        u = get_user(uid,"игрок")
+        win = 0
+        user_text = f"👤 {u['name']}:\n"
+
+        for amount,t,mult in bets:
+            ok = False
+            bet_name = ""
+
+            if t=="red":
+                ok="КРАСНОЕ" in col
+                bet_name = "красное"
+            elif t=="black":
+                ok="ЧЁРНОЕ" in col
+                bet_name = "чёрное"
+            elif t=="odd":
+                ok=eo=="нечётное"
+                bet_name = "нечёт"
+            elif t=="even":
+                ok=eo=="чётное"
+                bet_name = "чёт"
+            elif isinstance(t,tuple):
+                ok=t[1]==n
+                bet_name = f"число {t[1]}"
+
+            if ok:
+                prize = amount * mult
+                win += prize
+                user_text += f"✅ {amount} → {bet_name} (+{prize})\n"
+            else:
+                user_text += f"❌ {amount} → {bet_name}\n"
+
+        u["coins"] += win
+        update_user(uid,coins=u["coins"])
+
+        user_text += f"💰 Итог: +{win}\n\n"
+        result += user_text
+
+    current_bets[chat] = {}
+    send(chat,result)
+    return
 
     # ===== РЕЙТИНГ =====
     if text == "🏆 Рейтинг":
