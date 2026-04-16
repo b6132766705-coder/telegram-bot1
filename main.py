@@ -276,23 +276,23 @@ def handle(m):
                     elif isinstance(t,tuple):
                         ok=t[1]==n
                         bet_name = f"число {t[1]}"
+                        
+                        if ok:
+                            prize = amount * mult
+                            win += prize
+                            user_text += f"✅ {amount} → {bet_name} (+{prize})\n"
+                        else:
+                            user_text += f"❌ {amount} → {bet_name}\n"
 
-            if ok:
-                prize = amount * mult
-                win += prize
-                user_text += f"✅ {amount} → {bet_name} (+{prize})\n"
-            else:
-                user_text += f"❌ {amount} → {bet_name}\n"
+                    u["coins"] += win
+                    update_user(uid,coins=u["coins"])
 
-        u["coins"] += win
-        update_user(uid,coins=u["coins"])
+                    user_text += f"💰 Итог: +{win}\n\n"
+                    result += user_text
 
-        user_text += f"💰 Итог: +{win}\n\n"
-        result += user_text
-
-    current_bets[chat] = {}
-    send(chat,result)
-    return
+                current_bets[chat] = {}
+                send(chat,result)
+                return
 
     # ===== РЕЙТИНГ =====
     if text == "🏆 Рейтинг":
