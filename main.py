@@ -61,9 +61,14 @@ async def cmd_start(message: types.Message):
     async with async_session() as session:
         user = await session.get(User, message.from_user.id)
         if not user:
-            session.add(User(tg_id=message.from_user.id))
-            await session.commit()
+            # Сразу сохраняем ID и Имя
+            session.add(User(tg_id=message.from_user.id, username=message.from_user.first_name))
+        else:
+            # Если игрок уже был, обновим его имя (вдруг сменил)
+            user.username = message.from_user.first_name
+        await session.commit()
     await message.answer("🎰 Добро пожаловать!", reply_markup=get_main_keyboard(message.chat.type))
+
 
 @dp.message(F.text.lower().in_(["б", "b"]))
 async def fast_balance(message: types.Message):
