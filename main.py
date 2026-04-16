@@ -8,6 +8,7 @@ import psycopg2
 # ====================== ПОДКЛЮЧЕНИЕ ======================
 TOKEN = os.getenv("TOKEN")
 DATABASE_URL = os.getenv("DATABASE_URL")
+ADMIN_ID = 1316137517
 
 bot = telebot.TeleBot(TOKEN)
 
