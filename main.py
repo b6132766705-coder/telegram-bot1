@@ -4,7 +4,7 @@ import os
 import re
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command
-from aiogram.utils.keyboard import ReplyKeyboardBuilder, InlineKeyboardBuilder
+from aiogram.utils.keyboard import ReplyKeyboardBuilder
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 
@@ -20,7 +20,7 @@ class GuessState(StatesGroup):
 active_bets = {}
 RED_NUMS = [1, 3, 5, 7, 9, 12, 14, 16, 18, 19, 21, 23, 25, 27, 30, 32, 34, 36]
 
-#----------Клавиатура--------
+# ---------- КЛАВИАТУРА ----------
 def get_main_keyboard(chat_type: str):
     builder = ReplyKeyboardBuilder()
     
@@ -38,7 +38,7 @@ def get_main_keyboard(chat_type: str):
     builder.adjust(2)
     return builder.as_markup(resize_keyboard=True)
 
-# --- МАТЕМАТИКА ---
+# ---------- МАТЕМАТИКА ----------
 def check_win(bet_target, res_num):
     res_num = int(res_num)
     is_red = res_num in RED_NUMS
@@ -55,54 +55,35 @@ def check_win(bet_target, res_num):
     if bet_target.isdigit(): return (int(bet_target) == res_num), 36
     return False, 0
 
-# --- ХЕНДЛЕРЫ ---
+# ---------- ХЕНДЛЕРЫ ----------
+
 @dp.message(Command("start"))
 async def cmd_start(message: types.Message):
     async with async_session() as session:
         user = await session.get(User, message.from_user.id)
         if not user:
-            # Сразу сохраняем ID и Имя
             session.add(User(tg_id=message.from_user.id, username=message.from_user.first_name))
         else:
-            # Если игрок уже был, обновим его имя (вдруг сменил)
             user.username = message.from_user.first_name
         await session.commit()
     await message.answer("🎰 Добро пожаловать!", reply_markup=get_main_keyboard(message.chat.type))
 
-
-# Один общий хендлер для Профиля и быстрой проверки баланса "б"
-dp.message(F.text.lower().in_(["б", "b", "баланс", "👤 профиль"]))
+# Единый хендлер для профиля и баланса
+@dp.message(F.text.lower().in_(["б", "b", "баланс", "👤 профиль"]))
 async def show_profile(message: types.Message):
     async with async_session() as session:
         user = await session.get(User, message.from_user.id)
-        
-        # Если игрока еще нет в базе, создаем его
         if not user:
-            user = User(
-                tg_id=message.from_user.id, 
-                username=message.from_user.first_name,
-                balance=1000 # Даем стартовый капитал
-            )
+            user = User(tg_id=message.from_user.id, username=message.from_user.first_name)
             session.add(user)
             await session.commit()
-        else:
-            # Если игрок есть, обновляем его имя (на всякий случай)
-            user.username = message.from_user.first_name
-            await session.commit()
-            
-        # Формируем ответ
+        
         response = (
             f"👤 **Игрок:** {user.username}\n"
             f"💰 **Баланс:** {user.balance} 🔘\n"
             f"🏆 **Побед:** {user.wins}"
         )
-        
-        await message.answer(
-            response, 
-            reply_markup=get_main_keyboard(message.chat.type),
-            parse_mode="Markdown"
-        )
-
+        await message.answer(response, reply_markup=get_main_keyboard(message.chat.type), parse_mode="Markdown")
 
 @dp.message(F.text == "🔢 Угадай число")
 async def start_guess(message: types.Message, state: FSMContext):
@@ -154,15 +135,16 @@ async def txt_cancel_bets(message: types.Message):
     del active_bets[chat_id][user_id]
     await message.answer(f"❌ Отменено! **+{total_return}** возвращено.", reply_markup=get_main_keyboard(message.chat.type))
 
-# --- СТАВКИ ---
+# ---------- СТАВКИ ----------
 @dp.message(lambda m: re.match(r'^(все|\d+)\s+', m.text.lower()))
 async def place_smart_bet(message: types.Message):
     if message.chat.type == 'private': return await message.answer("🎰 В рулетку играем только в группах!")
     parts = message.text.lower().split()
     async with async_session() as session:
         user = await session.get(User, message.from_user.id)
-        if not user: user = User(tg_id=message.from_user.id); session.add(user)
+        if not user: user = User(tg_id=message.from_user.id, username=message.from_user.first_name); session.add(user)
         amount = (user.balance // (len(parts) - 1)) if parts[0] == "все" else int(parts[0])
+        if amount <= 0: return
         user_bets, total_cost = [], 0
         for target in parts[1:]:
             if re.match(r'^(к|ч|чт|нч|\d+-\d+|\d+)$', target) and user.balance >= total_cost + amount:
@@ -175,7 +157,7 @@ async def place_smart_bet(message: types.Message):
     for b in user_bets: report += f"• {b['amount']} ➔ {b['target']}\n"
     await message.answer(report, reply_markup=get_main_keyboard(message.chat.type))
 
-# --- ЗАПУСК РУЛЕТКИ ---
+# ---------- РУЛЕТКА ----------
 @dp.message(F.text.lower() == "го")
 async def spin_roulette(message: types.Message):
     chat_id = message.chat.id
@@ -185,10 +167,11 @@ async def spin_roulette(message: types.Message):
     final_report = f"🎰 {color} {res_num}\n\n"
     async with async_session() as session:
         session.add(RouletteLog(number=res_num, color=color))
-        for user_id, bets in active_bets[chat_id].items():
+        for user_id, bets in list(active_bets[chat_id].items()):
             user = await session.get(User, user_id)
+            if not user: continue
             user_total_win = 0
-            final_report += f"👤 Игрок {user_id}:\n"
+            final_report += f"👤 {user.username}:\n"
             for b in bets:
                 win, mult = check_win(b['target'], res_num)
                 if win:
@@ -202,8 +185,7 @@ async def spin_roulette(message: types.Message):
     active_bets[chat_id] = {}
     await message.answer(final_report, reply_markup=get_main_keyboard(message.chat.type))
 
-
-# --- УПРАВЛЕНИЕ ---
+# ---------- УПРАВЛЕНИЕ ----------
 @dp.message(F.text.lower() == "лог")
 async def show_roulette_log(message: types.Message):
     async with async_session() as session:
@@ -219,20 +201,13 @@ async def show_roulette_log(message: types.Message):
 async def show_leaderboard(message: types.Message):
     async with async_session() as session:
         from sqlalchemy import select
-        # Выбираем топ 10 игроков, у которых больше всего денег
-        result = await session.execute(
-            select(User).order_by(User.balance.desc()).limit(10)
-        )
+        result = await session.execute(select(User).order_by(User.balance.desc()).limit(10))
         top_users = result.scalars().all()
-        
         text = "🏆 **ТОП-10 БОГАЧЕЙ:**\n\n"
         for i, user in enumerate(top_users, 1):
-            # Если имени нет, пишем "Игрок"
-            name = user.username if user.username else "Скрытый игрок"
+            name = user.username if user.username else f"ID: {user.tg_id}"
             text += f"{i}. {name} — {user.balance} 🔘\n"
-        
-        await message.answer(text, parse_mode="Markdown")
-
+        await message.answer(text, reply_markup=get_main_keyboard(message.chat.type), parse_mode="Markdown")
 
 async def main():
     await init_db(); await dp.start_polling(bot)
