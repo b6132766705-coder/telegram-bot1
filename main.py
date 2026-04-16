@@ -196,8 +196,7 @@ if m.from_user.id == ADMIN_ID:
 
         except:
             send(chat, "❌ Ошибка\nПример: +100 или -50")
-
-        return
+            return
 
     # ===== СТАВКИ =====
     if not is_private:
