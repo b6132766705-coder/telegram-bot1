@@ -21,20 +21,25 @@ active_bets = {}
 RED_NUMS = [1, 3, 5, 7, 9, 12, 14, 16, 18, 19, 21, 23, 25, 27, 30, 32, 34, 36]
 
 #----------Клавиатура--------
-def get_main_keyboard(user_id=None, chat_id=None):
+def get_main_keyboard(chat_type: str):
     builder = ReplyKeyboardBuilder()
-    builder.button(text="👤 Профиль")
-    builder.button(text="🔢 Угадай число")
-    builder.button(text="📜 Помощь")
     
-    # Если переданы id и у пользователя есть ставки в этом чате — добавляем кнопки управления
-    if user_id and chat_id:
-        if active_bets.get(chat_id, {}).get(user_id):
-            builder.button(text="📝 Мои ставки")
-            builder.button(text="❌ Отменить всё")
+    if chat_type == 'private':
+        # Кнопки для лички с ботом
+        builder.button(text="👤 Профиль")
+        builder.button(text="🔢 Угадай число")
+        builder.button(text="📜 Помощь")
+        builder.button(text="🏆 Рейтинг")
+    else:
+        # Кнопки для групп
+        builder.button(text="👤 Профиль")
+        builder.button(text="🔢 Угадай число")
+        builder.button(text="📊 Ставки")
+        builder.button(text="❌ Отменить")
     
-    builder.adjust(2) # Кнопки будут по 2 в ряд
+    builder.adjust(2)
     return builder.as_markup(resize_keyboard=True)
+
 
 
 # --- МАТЕМАТИКА ---
@@ -64,20 +69,18 @@ async def cmd_start(message: types.Message):
         if not user:
             session.add(User(tg_id=message.from_user.id))
             await session.commit()
-    await message.answer("🎰 Добро пожаловать!", reply_markup=get_main_keyboard())
+    await message.answer("🎰 Добро пожаловать!", reply_markup=get_main_keyboard(message.chat.type)
 
 @dp.message(F.text.lower().in_(["б", "b"]))
 async def fast_balance(message: types.Message):
     async with async_session() as session:
         user = await session.get(User, message.from_user.id)
-        if not user:
-            user = User(tg_id=message.from_user.id)
-            session.add(user)
-            await session.commit()
-            
+        balance = user.balance if user else 0
         await message.answer(
-            f"💰 Баланс: {user.balance} 🔘",
-            reply_markup=get_main_keyboard(message.from_user.id, message.chat.id)
+            f"💰 Баланс: {balance} ",
+            reply_markup=get_main_keyboard(message.chat.type)
+        )
+
         )
 
 @dp.message(F.text == "👤 Профиль")
@@ -86,7 +89,7 @@ async def show_profile(message: types.Message):
         user = await session.get(User, message.from_user.id)
         if not user:
             user = User(tg_id=message.from_user.id); session.add(user); await session.commit()
-        await message.answer(f"👤 Игрок: {message.from_user.first_name}\n💰 Баланс: {user.balance} 🔘\n🏆 Побед: {user.wins}")
+        await message.answer(f"👤 Игрок: {message.from_user.first_name}\n💰 Баланс: {user.balance} \n🏆 Побед: {user.wins}")
 
 @dp.message(F.text == "🔢 Угадай число")
 async def start_guess(message: types.Message, state: FSMContext):
@@ -105,34 +108,33 @@ async def process_guess(message: types.Message, state: FSMContext):
         async with async_session() as session:
             user = await session.get(User, message.from_user.id)
             user.balance += 200; user.wins += 1; await session.commit()
-        await message.answer("🎉 +200 🔘", reply_markup=get_main_keyboard()); await state.clear()
+        await message.answer("🎉 +200 ", reply_markup=get_main_keyboard()); await state.clear()
     elif attempts > 0:
         await state.update_data(attempts=attempts)
         await message.answer(f"{'🔼 Больше' if secret > user_guess else '🔽 Меньше'}! Попыток: {attempts}")
     else:
-        await message.answer(f"💀 Было {secret}", reply_markup=get_main_keyboard()); await state.clear()
+        await message.answer(f"💀 Было {secret}", reply_markup=get_main_keyboard(message.chat.type); await state.clear()
 
 @dp.message(F.text == "📜 Помощь")
 async def btn_help(message: types.Message):
     await message.answer("🎰 **Рулетка:** `сумма` `цели` (100 к 7)\nНапиши **'го'** для запуска!", parse_mode="Markdown")
 
-# Обработка текстовой кнопки "📝 Мои ставки"
-@dp.message(F.text == "📝 Мои ставки")
+# Кнопка "📊 Ставки" (вместо "Мои ставки")
+@dp.message(F.text == "📊 Ставки")
 async def txt_my_bets(message: types.Message):
     user_bets = active_bets.get(message.chat.id, {}).get(message.from_user.id, [])
     if not user_bets:
-        return await message.answer("У тебя сейчас нет активных ставок.")
+        return await message.answer("❌ У тебя нет активных ставок.")
     
     text = "📊 **Твои текущие ставки:**\n"
-    total = 0
+    total = sum(b['amount'] for b in user_bets)
     for b in user_bets:
         text += f"• {b['amount']} ➔ {b['target']}\n"
-        total += b['amount']
-    text += f"\n💰 **Всего:** {total}"
+    text += f"\n💰 **Всего на кону:** {total}"
     await message.answer(text, parse_mode="Markdown")
 
-# Обработка текстовой кнопки "❌ Отменить всё"
-@dp.message(F.text == "❌ Отменить всё")
+# Кнопка "❌ Отменить" (вместо "Отменить все")
+@dp.message(F.text == "❌ Отменить")
 async def txt_cancel_bets(message: types.Message):
     chat_id, user_id = message.chat.id, message.from_user.id
     user_bets = active_bets.get(chat_id, {}).get(user_id, [])
@@ -147,11 +149,8 @@ async def txt_cancel_bets(message: types.Message):
         await session.commit()
     
     del active_bets[chat_id][user_id]
-    await message.answer(
-        f"❌ Ставки отменены! **+{total_return}** 🔘 возвращены на баланс.",
-        reply_markup=get_main_keyboard(), # Убираем кнопки отмены из меню
-        parse_mode="Markdown"
-    )
+    await message.answer(f"❌ Отменено! **+{total_return}**  возвращено.", parse_mode="Markdown")
+
 
 # --- СТАВКИ ---
 @dp.message(lambda m: re.match(r'^(все|\d+)\s+', m.text.lower()))
@@ -228,7 +227,7 @@ async def spin_roulette(message: types.Message):
 
      # В самом конце функции spin_roulette замени отправку отчета:
     active_bets[chat_id] = {} # Очищаем стол
-    await message.answer(final_report, reply_markup=get_main_keyboard())
+    await message.answer(final_report, reply_markup=reply_markup=get_main_keyboard(message.chat.type)
 
 
 # --- УПРАВЛЕНИЕ ---
