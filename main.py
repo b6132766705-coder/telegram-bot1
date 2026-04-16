@@ -202,6 +202,7 @@ async def spin_roulette(message: types.Message):
     active_bets[chat_id] = {}
     await message.answer(final_report, reply_markup=get_main_keyboard(message.chat.type))
 
+
 # --- УПРАВЛЕНИЕ ---
 @dp.message(F.text.lower() == "лог")
 async def show_roulette_log(message: types.Message):
