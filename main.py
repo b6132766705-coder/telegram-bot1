@@ -70,20 +70,39 @@ async def cmd_start(message: types.Message):
     await message.answer("🎰 Добро пожаловать!", reply_markup=get_main_keyboard(message.chat.type))
 
 
-@dp.message(F.text.lower().in_(["б", "b"]))
-async def fast_balance(message: types.Message):
-    async with async_session() as session:
-        user = await session.get(User, message.from_user.id)
-        balance = user.balance if user else 0
-        await message.answer(f"💰 Баланс: {balance} 🔘", reply_markup=get_main_keyboard(message.chat.type))
-
-@dp.message(F.text == "👤 Профиль")
+@# Один общий хендлер для Профиля и быстрой проверки баланса "б"
+@dp.message(F.text.lower().in_(["б", "b", "баланс", "👤 профиль"]))
 async def show_profile(message: types.Message):
     async with async_session() as session:
         user = await session.get(User, message.from_user.id)
+        
+        # Если игрока еще нет в базе, создаем его
         if not user:
-            user = User(tg_id=message.from_user.id); session.add(user); await session.commit()
-        await message.answer(f"👤 Игрок: {message.from_user.first_name}\n💰 Баланс: {user.balance} 🔘\n🏆 Побед: {user.wins}", reply_markup=get_main_keyboard(message.chat.type))
+            user = User(
+                tg_id=message.from_user.id, 
+                username=message.from_user.first_name,
+                balance=1000 # Даем стартовый капитал
+            )
+            session.add(user)
+            await session.commit()
+        else:
+            # Если игрок есть, обновляем его имя (на всякий случай)
+            user.username = message.from_user.first_name
+            await session.commit()
+            
+        # Формируем ответ
+        response = (
+            f"👤 **Игрок:** {user.username}\n"
+            f"💰 **Баланс:** {user.balance} 🔘\n"
+            f"🏆 **Побед:** {user.wins}"
+        )
+        
+        await message.answer(
+            response, 
+            reply_markup=get_main_keyboard(message.chat.type),
+            parse_mode="Markdown"
+        )
+
 
 @dp.message(F.text == "🔢 Угадай число")
 async def start_guess(message: types.Message, state: FSMContext):
