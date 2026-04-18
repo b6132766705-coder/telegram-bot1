@@ -2,6 +2,8 @@ import asyncio
 import logging
 import random
 import sqlite3
+import os  # Добавь это в самый верх к импортам
+
 from datetime import datetime, timedelta
 
 from aiogram import Bot, Dispatcher, F, types
@@ -11,7 +13,7 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, Message
 
 # --- НАСТРОЙКИ ---
-TOKEN = "ТВОЙ_ТОКЕН_ИЗ_BOTFATHER"
+TOKEN = os.getenv("BOT_TOKEN")
 ADMIN_ID = 123456789 # Твой ID (узнай его в @userinfobot)
 DB_PATH = "/app/data/telegram-bot1" # Путь для Railway Volume
 
