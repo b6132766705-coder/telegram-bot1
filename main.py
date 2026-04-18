@@ -11,7 +11,7 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, Message
 
 # --- НАСТРОЙКИ ---
-TOKEN = "ТОКЕН"
+TOKEN = "ТВОЙ_ТОКЕН_ИЗ_BOTFATHER"
 ADMIN_ID = 123456789 # Твой ID (узнай его в @userinfobot)
 DB_PATH = "/app/data/telegram-bot1" # Путь для Railway Volume
 
