@@ -61,8 +61,10 @@ def get_main_kb(chat_type):
             [KeyboardButton(text="🎮 Играть"), KeyboardButton(text="👤 Профиль")],
             [KeyboardButton(text="🏆 Рейтинг"), KeyboardButton(text="🎁 Бонус")]
         ], resize_keyboard=True)
+    # Кнопки для групп
     return ReplyKeyboardMarkup(keyboard=[
-        [KeyboardButton(text="🎮 Играть"), KeyboardButton(text="👤 Профиль")]
+        [KeyboardButton(text="🎮 Играть"), KeyboardButton(text="👤 Профиль")],
+        [KeyboardButton(text="📊 Ставки"), KeyboardButton(text="🚫 Отмена")]
     ], resize_keyboard=True)
 
 # --- ИНИЦИАЛИЗАЦИЯ ---
@@ -128,6 +130,36 @@ async def process_guess(message: Message, state: FSMContext):
         await message.answer(f"Попытки кончились! Это было {target}.", reply_markup=get_main_kb(message.chat.type))
         await state.clear()
 
+#--------------------Команды «Ставки» и «Отмена»----------
+@dp.message(F.text == "📊 Ставки")
+async def show_my_bets(message: Message):
+    cid = message.chat.id
+    uid = message.from_user.id
+    if cid not in pending_bets or not any(b['user_id'] == uid for b in pending_bets[cid]):
+        return await message.answer("У тебя пока нет активных ставок в этом раунде.")
+    
+    my_bets = [b for b in pending_bets[cid] if b['user_id'] == uid]
+    text = "📝 Твои текущие ставки:\n"
+    for b in my_bets:
+        for t in b['targets']:
+            text += f"• {b['amount']} ➔ {t}\n"
+    await message.answer(text)
+
+@dp.message(F.text == "🚫 Отмена")
+async def cancel_my_bets(message: Message):
+    cid = message.chat.id
+    uid = message.from_user.id
+    if cid in pending_bets:
+        # Считаем сумму для возврата
+        refund = sum(b['amount'] * len(b['targets']) for b in pending_bets[cid] if b['user_id'] == uid)
+        if refund > 0:
+            # Удаляем ставки пользователя
+            pending_bets[cid] = [b for b in pending_bets[cid] if b['user_id'] != uid]
+            update_balance(uid, refund)
+            await message.answer(f"✅ Твои ставки отменены. {refund} Угадаек возвращены на баланс.")
+        else:
+            await message.answer("У тебя нет активных ставок.")
+
 # --- РУЛЕТКА ---
 @dp.message(lambda m: m.text and m.text[0].isdigit())
 async def take_bet(message: Message):
@@ -155,42 +187,72 @@ async def take_bet(message: Message):
 @dp.message(F.text.lower() == "го")
 async def spin(message: Message):
     cid = message.chat.id
-    if cid not in pending_bets: return
+    if cid not in pending_bets or not pending_bets[cid]:
+        return await message.answer("🎰 Ставок пока нет!")
     
     win_num = random.randint(0, 36)
-    conn = sqlite3.connect(DB_PATH); cur = conn.cursor()
-    cur.execute("INSERT INTO history (number) VALUES (?)", (win_num,))
-    conn.commit(); conn.close()
     
-    color = "🟢" if win_num == 0 else ("🔴" if win_num % 2 == 0 else "⚫️")
-    res_text = f"🎡 Выпало: {color} {win_num}\n\nИТОГИ:\n"
+    # Определяем цвет и текст
+    if win_num == 0:
+        color_emoji, color_text = "🟢", "ЗЕРО"
+    elif win_num % 2 == 0:
+        color_emoji, color_text = "🔴", "КРАСНОЕ"
+    else:
+        color_emoji, color_text = "⚫", "ЧЁРНОЕ"
+        
+    res_text = f"🎰 {color_emoji} {color_text} {win_num}\n\n"
     
+    # Группируем ставки по пользователям для красивого вывода
+    users_results = {} # {user_id: {"name": str, "results": [], "total_win": int, "total_spent": int}}
+
     for bet in pending_bets[cid]:
-        win_sum = 0
+        uid = bet['user_id']
+        if uid not in users_results:
+            users_results[uid] = {"name": bet['name'], "results": [], "total_win": 0, "total_spent": 0}
+        
+        current_spent = bet['amount'] * len(bet['targets'])
+        users_results[uid]["total_spent"] += current_spent
+        
         for t in bet['targets']:
             is_win = False
             mult = 0
-            if t == "кр" and win_num != 0 and win_num % 2 == 0: is_win, mult = True, 2
-            elif t == "чр" and win_num % 2 != 0: is_win, mult = True, 2
+            # Логика проверки (сокращения: к=красное, ч=черное)
+            if t in ["к", "кр", "красное"] and win_num != 0 and win_num % 2 == 0: is_win, mult = True, 2
+            elif t in ["ч", "чр", "черное"] and win_num % 2 != 0: is_win, mult = True, 2
             elif t == "чет" and win_num != 0 and win_num % 2 == 0: is_win, mult = True, 2
             elif t == "нечет" and win_num % 2 != 0: is_win, mult = True, 2
             elif "-" in t:
-                low, high = map(int, t.split("-"))
-                if low <= win_num <= high:
-                    is_win, mult = True, 36 / (high - low + 1)
+                try:
+                    low, high = map(int, t.split("-"))
+                    if low <= win_num <= high: is_win, mult = True, 36 / (high - low + 1)
+                except: pass
             elif t.isdigit() and int(t) == win_num: is_win, mult = True, 36
             
-            if is_win: win_sum += int(bet['amount'] * mult)
+            if is_win:
+                win_val = int(bet['amount'] * mult)
+                users_results[uid]["total_win"] += win_val
+                users_results[uid]["results"].append(f"✅ {bet['amount']} ➔ {t} (+{win_val})")
+            else:
+                users_results[uid]["results"].append(f"❌ {bet['amount']} ➔ {t}")
+
+    # Формируем финальное сообщение
+    for uid, data in users_results.items():
+        res_text += f"👤 {data['name']}:\n"
+        res_text += "\n".join(data['results']) + "\n"
+        
+        # Считаем чистый итог (выигрыш минус потраченное)
+        final_profit = data['total_win'] - data['total_spent']
+        profit_sign = "+" if final_profit >= 0 else ""
+        res_text += f"💰 Итог: {profit_sign}{final_profit}\n\n"
+        
+        # Выплачиваем только выигрыш (ставки уже были списаны)
+        if data['total_win'] > 0:
+            update_balance(uid, data['total_win'])
             
-        if win_sum > 0:
-            update_balance(bet['user_id'], win_sum)
-            res_text += f"✅ {bet['name']} выиграл {win_sum}!\n"
-        else:
-            res_text += f"❌ {bet['name']} проиграл.\n"
-            
-    pending_bets[cid] = []
+    pending_bets[cid] = [] # Очищаем раунд
     await message.answer(res_text)
 
+#------------------------лог----------------
 @dp.message(F.text.lower() == "лог")
 async def show_log(message: Message):
     conn = sqlite3.connect(DB_PATH); cur = conn.cursor()
