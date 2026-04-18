@@ -255,11 +255,32 @@ async def spin(message: Message):
 #------------------------лог----------------
 @dp.message(F.text.lower() == "лог")
 async def show_log(message: Message):
-    conn = sqlite3.connect(DB_PATH); cur = conn.cursor()
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    # Берем последние 10 записей
     cur.execute("SELECT number FROM history ORDER BY rowid DESC LIMIT 10")
-    res = cur.fetchall(); conn.close()
-    if not res: return await message.answer("История пуста")
-    out = "📜 Лог: " + ", ".join([str(r[0]) for r in res])
+    res = cur.fetchall()
+    conn.close()
+    
+    if not res:
+        return await message.answer("📜 История пока пуста. Сделайте первую ставку!")
+
+    out = "📜 История:\n\n"
+    
+    # Перебираем результаты и формируем список
+    for i, row in enumerate(res, 1):
+        num = row[0]
+        
+        # Определяем цвет для каждого числа из истории
+        if num == 0:
+            color_emoji, color_text = "🟢", "ЗЕРО"
+        elif num % 2 == 0:
+            color_emoji, color_text = "🔴", "КРАСНОЕ"
+        else:
+            color_emoji, color_text = "⚫", "ЧЁРНОЕ"
+            
+        out += f"{i}. 🎰 {color_emoji} {color_text} {num}\n"
+    
     await message.answer(out)
 
 # --- АДМИНКА ---
