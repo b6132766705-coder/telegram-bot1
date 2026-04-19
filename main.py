@@ -40,6 +40,10 @@ def get_user(user_id):
     conn.close()
     return res
 
+def fmt(num):
+    """Функция для превращения 1000000 в 1 000 000"""
+    return f"{int(num):,}".replace(",", " ")
+
 def update_balance(user_id, amount):
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
@@ -52,10 +56,6 @@ class GameStates(StatesGroup):
     guessing = State()
 
 pending_bets = {}
-
-def fmt(num):
-    """Функция для превращения 1000000 в 1 000 000"""
-    return f"{int(num):,}".replace(",", " ")
 
 
 # --- КЛАВИАТУРЫ ---
