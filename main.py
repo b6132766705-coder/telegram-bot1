@@ -78,7 +78,6 @@ async def cmd_start(message: Message):
                          reply_markup=get_main_kb(message.chat.type))
 
 @dp.message(F.text == "👤 Профиль")
-@dp.message(F.text.lower() == "б")
 async def show_profile(message: Message):
     balance, _ = get_user(message.from_user.id)
     await message.answer(f"💰 Ваш баланс: **{balance}** Угадаек.", parse_mode="Markdown")
