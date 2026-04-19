@@ -13,7 +13,7 @@ from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, Message
 
 # --- НАСТРОЙКИ ---
 TOKEN = os.getenv("BOT_TOKEN")
-ADMIN_ID = 1316137517 # ЗАМЕНИ НА СВОЙ ID
+ADMIN_ID = 1316137517  # ЗАМЕНИ НА СВОЙ ID
 DB_PATH = "/app/data/butya.db
 "
 
