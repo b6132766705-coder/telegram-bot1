@@ -83,6 +83,11 @@ async def show_profile(message: Message):
     balance, _ = get_user(message.from_user.id)
     await message.answer(f"💰 Ваш баланс: **{balance}** Угадаек.", parse_mode="Markdown")
 
+@dp.message(F.text.lower() == "б")
+async def show_profile(message: Message):
+    balance, _ = get_user(message.from_user.id)
+    await message.answer(f"💰 Ваш баланс: **{balance}**", parse_mode="Markdown")
+
 @dp.message(F.text.lower().startswith("п "), F.reply_to_message)
 async def transfer(message: Message):
     try:
