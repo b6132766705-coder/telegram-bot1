@@ -266,6 +266,7 @@ async def show_log(message: Message):
         out += f"{i}. 🎰 {col} {n}\n"
     await message.answer(out)
 
+#-----Админ-------
 @dp.message(F.reply_to_message, lambda m: m.from_user.id == ADMIN_ID)
 async def admin_power(message: Message):
     if message.text.startswith(("+", "-")):
