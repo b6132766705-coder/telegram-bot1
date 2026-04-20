@@ -173,7 +173,7 @@ async def cancel_my_bets(message: Message):
     await message.answer("У тебя нет активных Ставок")
 
 #--------Рулетка-------
-   @dp.message(lambda m: m.text and (m.text.split()[0].isdigit() or m.text.lower().startswith("все") or m.text.lower().startswith("всё")))
+@dp.message(lambda m: m.text and (m.text.split()[0].isdigit() or m.text.lower().startswith("все") or m.text.lower().startswith("всё")))
 async def take_bet(message: Message):
     # Разделяем сообщение на слова
     parts = message.text.split()
