@@ -263,8 +263,10 @@ async def take_bet(message: Message):
 
 @dp.message(F.text.lower() == "го")
 async def spin(message: Message):
+    # ПРОВЕРКА ЧАТА (Теперь с правильным отступом!)
     if message.chat.type == "private":
-    return await message.answer("🎰 В рулетку можно играть только в группах! Добавь меня в чат с друзьями.")
+        return await message.answer("🎰 В рулетку можно играть только в группах! Добавь меня в чат с друзьями.")
+    
     cid = message.chat.id
     if cid not in pending_bets or not pending_bets[cid]:
         return await message.answer("🎰 Ставок пока нет!")
@@ -317,6 +319,7 @@ async def spin(message: Message):
 
 @dp.message(F.text.lower() == "лог")
 async def show_log(message: Message):
+    # ПРОВЕРКА ЧАТА
     if message.chat.type == "private":
         return await message.answer("📜 История игр доступна только в группах.")
 
@@ -324,12 +327,14 @@ async def show_log(message: Message):
     cur.execute("SELECT number FROM history ORDER BY rowid DESC LIMIT 10")
     res = cur.fetchall(); conn.close()
     if not res: return await message.answer("История пуста")
+    
     out = "📜 История:\n\n"
     for i, row in enumerate(res, 1):
         n = row[0]
         col = "🟢 ЗЕРО" if n == 0 else ("🔴 КРАСНОЕ" if n % 2 == 0 else "⚫ ЧЁРНОЕ")
         out += f"{i}. 🎰 {col} {n}\n"
     await message.answer(out)
+
 
 #-----Админ-------
 @dp.message(F.reply_to_message, lambda m: m.from_user.id == ADMIN_ID)
