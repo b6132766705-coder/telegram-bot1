@@ -317,6 +317,9 @@ async def spin(message: Message):
 
 @dp.message(F.text.lower() == "лог")
 async def show_log(message: Message):
+    if message.chat.type == "private":
+        return await message.answer("📜 История игр доступна только в группах.")
+
     conn = sqlite3.connect(DB_PATH); cur = conn.cursor()
     cur.execute("SELECT number FROM history ORDER BY rowid DESC LIMIT 10")
     res = cur.fetchall(); conn.close()
