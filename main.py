@@ -131,6 +131,7 @@ async def get_bonus(message: Message):
     await message.answer(f"🎁 Ты получил бонус: **{fmt(bonus_amount)}** Угадаек!")
 
 @dp.message(F.text == "🏆 Рейтинг")
+@dp.message(F.text.lower == "/top")
 async def show_rating(message: Message):
     conn = sqlite3.connect(DB_PATH); cur = conn.cursor()
     cur.execute("SELECT name, balance, id FROM users ORDER BY balance DESC LIMIT 10")
