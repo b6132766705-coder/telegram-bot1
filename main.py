@@ -13,12 +13,11 @@ from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, Message
 
 # --- НАСТРОЙКИ ---
 TOKEN = os.getenv("BOT_TOKEN")
-ADMIN_ID = 1316137517  # ЗАМЕНИ НА СВОЙ ID
+ADMIN_ID = 1316137517 
 DB_PATH = "/app/data/butya.db"
 
 # --- ФУНКЦИЯ ДЛЯ КРАСИВЫХ ЧИСЕЛ ---
 def fmt(num):
-    """Функция для превращения 1000000 в 1 000 000"""
     return f"{int(num):,}".replace(",", " ")
 
 # --- БАЗА ДАННЫХ ---
@@ -29,7 +28,6 @@ def init_db():
     cur = conn.cursor()
     cur.execute('''CREATE TABLE IF NOT EXISTS users 
                    (id INTEGER PRIMARY KEY, balance INTEGER DEFAULT 10000, last_bonus TEXT, name TEXT)''')
-    # Эта строка нужна, если колонка name еще не создана в старой базе:
     try:
         cur.execute("ALTER TABLE users ADD COLUMN name TEXT")
     except:
@@ -38,24 +36,20 @@ def init_db():
     conn.commit()
     conn.close()
 
-
 def get_user(user_id, name):
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
     cur.execute("SELECT balance, last_bonus FROM users WHERE id = ?", (user_id,))
     res = cur.fetchone()
     if not res:
-        # Если игрока нет, создаем его с именем
         cur.execute("INSERT INTO users (id, balance, name) VALUES (?, ?, ?)", (user_id, 10000, name))
         conn.commit()
         res = (10000, None)
     else:
-        # Если игрок есть, обновляем его имя (вдруг он его сменил в профиле)
         cur.execute("UPDATE users SET name = ? WHERE id = ?", (name, user_id))
         conn.commit()
     conn.close()
     return res
-
 
 def update_balance(user_id, amount):
     conn = sqlite3.connect(DB_PATH)
@@ -64,7 +58,7 @@ def update_balance(user_id, amount):
     conn.commit()
     conn.close()
 
-# --- СОСТОЯНИЯ И ПАМЯТЬ ---
+# --- СОСТОЯНИЯ ---
 class GameStates(StatesGroup):
     guessing = State()
 
@@ -82,26 +76,21 @@ def get_main_kb(chat_type):
         [KeyboardButton(text="📊 Ставки"), KeyboardButton(text="🚫 Отмена")]
     ], resize_keyboard=True)
 
-# --- ИНИЦИАЛИЗАЦИЯ ---
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 logging.basicConfig(level=logging.INFO)
 
-# --- БАЗОВЫЕ КОМАНДЫ ---
+# --- КОМАНДЫ ---
 @dp.message(Command("start"))
 async def cmd_start(message: Message):
-    # Добавляем имя: message.from_user.full_name
     get_user(message.from_user.id, message.from_user.full_name)
-    await message.answer(f"Привет! Я Бутя. Даю {fmt(10000)} Угадаек!", 
-                         reply_markup=get_main_kb(message.chat.type))
+    await message.answer(f"Привет! Я Бутя. Даю {fmt(10000)} Угадаек!", reply_markup=get_main_kb(message.chat.type))
 
 @dp.message(F.text == "👤 Профиль")
 @dp.message(F.text.lower() == "б")
 async def show_profile(message: Message):
-    # И тут добавляем имя
     balance, _ = get_user(message.from_user.id, message.from_user.full_name)
     await message.answer(f"💰 Ваш баланс: **{fmt(balance)}** Угадаек.", parse_mode="Markdown")
-
 
 @dp.message(F.text.lower().startswith("п "), F.reply_to_message)
 async def transfer(message: Message):
@@ -111,7 +100,7 @@ async def transfer(message: Message):
         receiver = message.reply_to_message.from_user
         if amount <= 0 or sender_id == receiver.id: return
         
-        bal, _ = get_user(sender_id)
+        bal, _ = get_user(sender_id, message.from_user.full_name)
         if bal < amount: return await message.answer("❌ Недостаточно Угадаек!")
         
         update_balance(sender_id, -amount)
@@ -119,106 +108,55 @@ async def transfer(message: Message):
         await message.answer(f"✅ Переведено {fmt(amount)} Угадаек для {receiver.first_name}")
     except: pass
 
-#-----------Бонус---------
 @dp.message(F.text == "🎁 Бонус")
 async def get_bonus(message: Message):
-    conn = sqlite3.connect(DB_PATH)
-    cur = conn.cursor()
-    cur.execute("SELECT balance, last_bonus FROM users WHERE id = ?", (message.from_user.id,))
-    res = cur.fetchone()
+    # Тут важно передать full_name
+    res = get_user(message.from_user.id, message.from_user.full_name)
+    balance, last_bonus_str = res
     
     now = datetime.now()
-    
-    # Проверяем, брал ли игрок бонус и прошло ли 24 часа
-    if res and res[1]:
-        last_b = datetime.fromisoformat(res[1])
+    if last_bonus_str:
+        last_b = datetime.fromisoformat(last_bonus_str)
         if now - last_b < timedelta(hours=24):
             left = timedelta(hours=24) - (now - last_b)
             hours, remainder = divmod(left.seconds, 3600)
             minutes, _ = divmod(remainder, 60)
-            conn.close()
-            return await message.answer(f"⏳ Бонус уже получен!\nВозвращайся через **{hours} ч. {minutes} мин.**", parse_mode="Markdown")
+            return await message.answer(f"⏳ Бонус уже получен!\nВозвращайся через **{hours} ч. {minutes} мин.**")
 
-    # Генерируем случайный бонус
     bonus_amount = random.randint(100, 5000)
-    
-    # Обновляем баланс и время в базе
+    conn = sqlite3.connect(DB_PATH); cur = conn.cursor()
     cur.execute("UPDATE users SET balance = balance + ?, last_bonus = ? WHERE id = ?", 
                 (bonus_amount, now.isoformat(), message.from_user.id))
-    conn.commit()
-    conn.close()
+    conn.commit(); conn.close()
+    await message.answer(f"🎁 Ты получил бонус: **{fmt(bonus_amount)}** Угадаек!")
 
-    await message.answer(f"🎁 Поздравляю! Ты получил ежедневный бонус: **{fmt(bonus_amount)}** Угадаек!", parse_mode="Markdown")
-
-#---------Рейтинг--------
 @dp.message(F.text == "🏆 Рейтинг")
 async def show_rating(message: Message):
-    conn = sqlite3.connect(DB_PATH)
-    cur = conn.cursor()
-    # Достаем имя (name) и баланс (balance)
+    conn = sqlite3.connect(DB_PATH); cur = conn.cursor()
     cur.execute("SELECT name, balance, id FROM users ORDER BY balance DESC LIMIT 10")
-    top_users = cur.fetchall()
-    conn.close()
-
-    if not top_users:
-        return await message.answer("Рейтинг пока пуст.")
+    top_users = cur.fetchall(); conn.close()
+    if not top_users: return await message.answer("Рейтинг пока пуст.")
 
     text = "🏆 <b>ТОП-10 БОГАЧЕЙ:</b>\n\n"
     medals = ["🥇", "🥈", "🥉"]
-
     for i, (name, bal, uid) in enumerate(top_users):
         medal = medals[i] if i < 3 else f"<b>{i+1}.</b>"
-        # Если имени нет в базе (старый игрок), напишем просто "Игрок"
         display_name = name if name else "Игрок"
-        
-        # Делаем имя кликабельным
         text += f"{medal} <a href='tg://user?id={uid}'>{display_name}</a> — <b>{fmt(bal)}</b>\n"
-
     await message.answer(text, parse_mode="HTML")
 
-
-# --- МИНИ-ИГРА: УГАДАЙ ЧИСЛО ---
-@dp.message(F.text == "🎮 Играть")
-async def start_guess(message: Message, state: FSMContext):
-    num = random.randint(1, 10)
-    await state.set_state(GameStates.guessing)
-    await state.update_data(target=num, attempts=3)
-    await message.answer("Я загадал число от 1 до 10. У тебя 3 попытки! Пиши число:")
-
-@dp.message(GameStates.guessing)
-async def process_guess(message: Message, state: FSMContext):
-    if not message.text.isdigit(): return
-    guess = int(message.text)
-    data = await state.get_data()
-    target = data['target']
-    attempts = data['attempts'] - 1
-
-    if guess == target:
-        update_balance(message.from_user.id, 50)
-        await message.answer(f"🎉 Угадал! +{fmt(50)} Угадаек.", reply_markup=get_main_kb(message.chat.type))
-        await state.clear()
-    elif attempts > 0:
-        hint = "Больше!" if target > guess else "Меньше!"
-        await state.update_data(attempts=attempts)
-        await message.answer(f"Неверно. {hint} Осталось попыток: {attempts}")
-    else:
-        await message.answer(f"Попытки кончились! Это было {target}.", reply_markup=get_main_kb(message.chat.type))
-        await state.clear()
-
-
-# --- УПРАВЛЕНИЕ СТАВКАМИ ---
 @dp.message(F.text == "📊 Ставки")
 async def show_my_bets(message: Message):
     cid = message.chat.id
     uid = message.from_user.id
     if cid not in pending_bets or not any(b['user_id'] == uid for b in pending_bets[cid]):
-        return await message.answer("У тебя пока нет активных ставок в этом раунде.")
+        return await message.answer("У тебя нет активных ставок.")
     
     my_bets = [b for b in pending_bets[cid] if b['user_id'] == uid]
     text = "📝 Твои текущие ставки:\n"
     for b in my_bets:
         for t in b['targets']:
-            text += f"• {b['amount']} ➔ {t}\n"
+            text += f"• {fmt(b['amount'])} ➔ {t}\n"
     await message.answer(text)
 
 @dp.message(F.text == "🚫 Отмена")
@@ -226,15 +164,14 @@ async def cancel_my_bets(message: Message):
     cid = message.chat.id
     uid = message.from_user.id
     if cid in pending_bets:
-        refund = sum(b['amount'] * len(b['targets']) for b in pending_bets[cid] if b['user_id'] == uid)
-        if refund > 0:
+        user_bets = [b for b in pending_bets[cid] if b['user_id'] == uid]
+        if user_bets:
+            refund = sum(b['amount'] * len(b['targets']) for b in user_bets)
             pending_bets[cid] = [b for b in pending_bets[cid] if b['user_id'] != uid]
             update_balance(uid, refund)
-            await message.answer(f"✅ Твои ставки отменены. {refund} Угадаек возвращены на баланс.")
-        else:
-            await message.answer("У тебя нет активных ставок.")
+            return await message.answer(f"✅ Ставки отменены. Возвращено: {fmt(refund)}")
+    await message.answer("У тебя нет активных ставок.")
 
-# --- РУЛЕТКА ---
 @dp.message(lambda m: m.text and m.text[0].isdigit())
 async def take_bet(message: Message):
     parts = message.text.split()
@@ -243,17 +180,23 @@ async def take_bet(message: Message):
         targets = parts[1:]
         if not targets or amount <= 0: return
         
-        bal, _ = get_user(message.from_user.id)
+        # Исправлено: добавлено имя
+        bal, _ = get_user(message.from_user.id, message.from_user.full_name)
         total_needed = amount * len(targets)
         if bal < total_needed: return await message.answer("❌ Не хватает Угадаек!")
         
         cid = message.chat.id
         if cid not in pending_bets: pending_bets[cid] = []
         
-        pending_bets[cid].append({"user_id": message.from_user.id, "name": message.from_user.first_name, "amount": amount, "targets": targets})
+        pending_bets[cid].append({
+            "user_id": message.from_user.id, 
+            "name": message.from_user.first_name, 
+            "amount": amount, 
+            "targets": targets
+        })
         update_balance(message.from_user.id, -total_needed)
         
-        report = f"✅ Ставок: {len(targets)}\n💸 Потрачено: {total_needed}\n\n📊 Твои ставки:\n"
+        report = f"✅ Ставок: {len(targets)}\n💸 Потрачено: {fmt(total_needed)}\n\n📊 Твои ставки:\n"
         for t in targets: report += f"• {fmt(amount)} ➔ {t}\n"
         await message.answer(report)
     except: pass
@@ -265,26 +208,21 @@ async def spin(message: Message):
         return await message.answer("🎰 Ставок пока нет!")
     
     win_num = random.randint(0, 36)
-    
     conn = sqlite3.connect(DB_PATH); cur = conn.cursor()
     cur.execute("INSERT INTO history (number) VALUES (?)", (win_num,))
     conn.commit(); conn.close()
     
-    if win_num == 0: color_emoji, color_text = "🟢", "ЗЕРО"
-    elif win_num % 2 == 0: color_emoji, color_text = "🔴", "КРАСНОЕ"
-    else: color_emoji, color_text = "⚫", "ЧЁРНОЕ"
-        
-    res_text = f"🎰 {color_emoji} {color_text} {win_num}\n\n"
+    col_em = "🟢" if win_num == 0 else ("🔴" if win_num % 2 == 0 else "⚫")
+    col_txt = "ЗЕРО" if win_num == 0 else ("КРАСНОЕ" if win_num % 2 == 0 else "ЧЁРНОЕ")
+    res_text = f"🎰 {col_em} {col_txt} {win_num}\n\n"
+    
     users_results = {} 
-
     for bet in pending_bets[cid]:
         uid = bet['user_id']
         if uid not in users_results:
             users_results[uid] = {"name": bet['name'], "results": [], "total_win": 0, "total_spent": 0}
         
-        current_spent = bet['amount'] * len(bet['targets'])
-        users_results[uid]["total_spent"] += current_spent
-        
+        users_results[uid]["total_spent"] += bet['amount'] * len(bet['targets'])
         for t in bet['targets']:
             is_win = False
             mult = 0
@@ -294,49 +232,40 @@ async def spin(message: Message):
             elif t == "нечет" and win_num % 2 != 0: is_win, mult = True, 2
             elif "-" in t:
                 try:
-                    low, high = map(int, t.split("-"))
-                    if low <= win_num <= high: is_win, mult = True, 36 / (high - low + 1)
+                    l, h = map(int, t.split("-")); 
+                    if l <= win_num <= h: is_win, mult = True, 36/(h-l+1)
                 except: pass
             elif t.isdigit() and int(t) == win_num: is_win, mult = True, 36
             
             if is_win:
-                win_val = int(bet['amount'] * mult)
-                users_results[uid]["total_win"] += win_val
-                users_results[uid]["results"].append(f"✅ {fmt(bet['amount'])} ➔ {t} (+{fmt(win_val)})")
+                win_v = int(bet['amount'] * mult)
+                users_results[uid]["total_win"] += win_v
+                users_results[uid]["results"].append(f"✅ {fmt(bet['amount'])} ➔ {t} (+{fmt(win_v)})")
             else:
                 users_results[uid]["results"].append(f"❌ {fmt(bet['amount'])} ➔ {t}")
 
     for uid, data in users_results.items():
-        res_text += f"👤 {data['name']}:\n"
-        res_text += "\n".join(data['results']) + "\n"
-        
-        final_profit = data['total_win'] - data['total_spent']
-        profit_sign = "+" if final_profit >= 0 else ""
-        res_text += f"💰 Итог: {profit_sign}{fmt(abs(final_profit))}\n\n"
-        
-        if data['total_win'] > 0:
-            update_balance(uid, data['total_win'])
+        res_text += f"👤 {data['name']}:\n" + "\n".join(data['results']) + "\n"
+        prof = data['total_win'] - data['total_spent']
+        res_text += f"💰 Итог: {'+' if prof >= 0 else ''}{fmt(prof)}\n\n"
+        if data['total_win'] > 0: update_balance(uid, data['total_win'])
             
     pending_bets[cid] = [] 
     await message.answer(res_text)
 
-# --- ИСТОРИЯ ---
 @dp.message(F.text.lower() == "лог")
 async def show_log(message: Message):
     conn = sqlite3.connect(DB_PATH); cur = conn.cursor()
     cur.execute("SELECT number FROM history ORDER BY rowid DESC LIMIT 10")
     res = cur.fetchall(); conn.close()
-    
     if not res: return await message.answer("История пуста")
-
     out = "📜 История:\n\n"
     for i, row in enumerate(res, 1):
-        num = row[0]
-        col = "🟢 ЗЕРО" if num == 0 else ("🔴 КРАСНОЕ" if num % 2 == 0 else "⚫ ЧЁРНОЕ")
-        out += f"{i}. 🎰 {col} {num}\n"
+        n = row[0]
+        col = "🟢 ЗЕРО" if n == 0 else ("🔴 КРАСНОЕ" if n % 2 == 0 else "⚫ ЧЁРНОЕ")
+        out += f"{i}. 🎰 {col} {n}\n"
     await message.answer(out)
 
-# --- АДМИНКА ---
 @dp.message(F.reply_to_message, lambda m: m.from_user.id == ADMIN_ID)
 async def admin_power(message: Message):
     if message.text.startswith(("+", "-")):
