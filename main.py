@@ -176,7 +176,7 @@ async def cancel_my_bets(message: Message):
 @dp.message(lambda m: m.text and (m.text.split()[0].isdigit() or m.text.lower().startswith("все") or m.text.lower().startswith("всё")))
 async def take_bet(message: Message):
     if message.chat.type == "private":
-    return await message.answer("🎰 В рулетку можно играть только в группах! Добавь меня в чат с друзьями.")
+        return await message.answer("🎰 В рулетку можно играть только в группах! Добавь меня в чат с друзьями.")
     parts = message.text.split()
     if len(parts) < 2:
         return 
