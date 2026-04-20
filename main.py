@@ -104,6 +104,61 @@ async def transfer(message: Message):
         await message.answer(f"✅ Переведено {fmt(amount)} Угадаек для {receiver.first_name}")
     except: pass
 
+#-----------Бонус---------
+@dp.message(F.text == "🎁 Бонус")
+async def get_bonus(message: Message):
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    cur.execute("SELECT balance, last_bonus FROM users WHERE id = ?", (message.from_user.id,))
+    res = cur.fetchone()
+    
+    now = datetime.now()
+    
+    # Проверяем, брал ли игрок бонус и прошло ли 24 часа
+    if res and res[1]:
+        last_b = datetime.fromisoformat(res[1])
+        if now - last_b < timedelta(hours=24):
+            left = timedelta(hours=24) - (now - last_b)
+            hours, remainder = divmod(left.seconds, 3600)
+            minutes, _ = divmod(remainder, 60)
+            conn.close()
+            return await message.answer(f"⏳ Бонус уже получен!\nВозвращайся через **{hours} ч. {minutes} мин.**", parse_mode="Markdown")
+
+    # Генерируем случайный бонус
+    bonus_amount = random.randint(10000, 50000)
+    
+    # Обновляем баланс и время в базе
+    cur.execute("UPDATE users SET balance = balance + ?, last_bonus = ? WHERE id = ?", 
+                (bonus_amount, now.isoformat(), message.from_user.id))
+    conn.commit()
+    conn.close()
+
+    await message.answer(f"🎁 Поздравляю! Ты получил ежедневный бонус: **{fmt(bonus_amount)}** Угадаек!", parse_mode="Markdown")
+
+#---------Рейтинг--------
+@dp.message(F.text == "🏆 Рейтинг")
+async def show_rating(message: Message):
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    # Достаем топ-10 игроков по балансу
+    cur.execute("SELECT id, balance FROM users ORDER BY balance DESC LIMIT 10")
+    top_users = cur.fetchall()
+    conn.close()
+
+    if not top_users:
+        return await message.answer("Рейтинг пока пуст.")
+
+    text = "🏆 <b>ТОП-10 БОГАЧЕЙ:</b>\n\n"
+    medals = ["🥇", "🥈", "🥉"]
+
+    for i, (uid, bal) in enumerate(top_users):
+        medal = medals[i] if i < 3 else f"<b>{i+1}.</b>"
+        # Делаем секретную ссылку: вместо длинного ID будет кликабельное слово "Игрок"
+        text += f"{medal} <a href='tg://user?id={uid}'>Игрок</a> — <b>{fmt(bal)}</b>\n"
+
+    await message.answer(text, parse_mode="HTML")
+
+
 # --- МИНИ-ИГРА: УГАДАЙ ЧИСЛО ---
 @dp.message(F.text == "🎮 Играть")
 async def start_guess(message: Message, state: FSMContext):
