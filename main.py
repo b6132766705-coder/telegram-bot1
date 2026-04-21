@@ -14,7 +14,7 @@ from aiogram import BaseMiddleware
 
 # --- НАСТРОЙКИ ---
 TOKEN = os.getenv("BOT_TOKEN")
-ADMIN_ID = 1316137517 
+ADMIN_ID = 1316137517
 DB_PATH = "/app/data/butya.db"
 
 # 1. Инициализация (Только один раз!)
@@ -614,6 +614,34 @@ async def try_steal(message: Message):
             parse_mode="HTML"
         )
 
+# --- АДМИН-ЧИТ: ОБНУЛЕНИЕ ТАЙМЕРОВ ---
+@dp.message(lambda m: m.text and m.text.lower().startswith("обнулить"))
+async def admin_reset(message: Message):
+    # Логируем ID, чтобы ты мог проверить его в консоли сервера
+    logging.info(f"Команда 'обнулить' от ID: {message.from_user.id}")
+
+    # СТРОГАЯ ПРОВЕРКА ID (Убедись, что тут только цифры!)
+    if message.from_user.id != 1316137517:
+        return # Если это не ты, бот просто промолчит
+
+    # Определяем цель (на кого ответили или сам админ)
+    target_user = message.reply_to_message.from_user if message.reply_to_message else message.from_user
+    
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cur = conn.cursor()
+        cur.execute("""UPDATE users SET 
+                       last_steal = NULL, 
+                       shame_mark = NULL, 
+                       last_bonus = NULL 
+                       WHERE id = ?""", (target_user.id,))
+        conn.commit()
+        conn.close()
+        
+        await message.answer(f"🪄 **Магия!** Таймеры для {target_user.first_name} сброшены.")
+    except Exception as e:
+        logging.error(f"Ошибка при обнулении: {e}")
+        await message.answer("❌ Произошла ошибка в базе данных.")
 #-----Админ-------
 @dp.message(F.reply_to_message, lambda m: m.from_user.id == ADMIN_ID)
 async def admin_power(message: Message):
@@ -624,23 +652,7 @@ async def admin_power(message: Message):
             await message.answer(f"👑 Изменено на {fmt(val)}")
         except: pass
 
-# --- АДМИН-ЧИТ: ОБНУЛЕНИЕ ТАЙМЕРОВ ---
-@dp.message(lambda m: m.text and m.text.lower().startswith("обнулить"), lambda m: m.from_user.id == ADMIN_ID)
-async def admin_reset(message: Message):
-    # Если есть реплай - берем того, кому ответили. Если нет - берем самого админа.
-    target_user = message.reply_to_message.from_user if message.reply_to_message else message.from_user
-    
-    conn = sqlite3.connect(DB_PATH)
-    cur = conn.cursor()
-    cur.execute("""UPDATE users SET 
-                   last_steal = NULL, 
-                   shame_mark = NULL, 
-                   last_bonus = NULL 
-                   WHERE id = ?""", (target_user.id,))
-    conn.commit()
-    conn.close()
-    
-    await message.answer(f"🪄 **Магия!** Таймеры для {target_user.first_name} сброшены.")
+
 
 # --- ЗАПУСК ---
 async def main():
