@@ -10,11 +10,30 @@ from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, Message
+from aiogram import BaseMiddleware
 
 # --- НАСТРОЙКИ ---
 TOKEN = os.getenv("BOT_TOKEN")
 ADMIN_ID = 1316137517 
 DB_PATH = "/app/data/butya.db"
+
+# --- ШПИОН АКТИВНОСТИ ---
+class ActivityMiddleware(BaseMiddleware):
+    async def __call__(self, handler, event, data):
+        # Если это текстовое сообщение от реального пользователя
+        if isinstance(event, Message) and event.from_user and not event.from_user.is_bot:
+            now_str = datetime.now().isoformat()
+            uid = event.from_user.id
+            # Обновляем время активности в фоне
+            conn = sqlite3.connect(DB_PATH)
+            cur = conn.cursor()
+            cur.execute("UPDATE users SET last_active = ? WHERE id = ?", (now_str, uid))
+            conn.commit()
+            conn.close()
+        return await handler(event, data)
+
+# Подключаем шпиона к боту
+dp.message.middleware(ActivityMiddleware())
 
 # --- ФУНКЦИЯ ДЛЯ КРАСИВЫХ ЧИСЕЛ ---
 def fmt(num):
@@ -30,8 +49,17 @@ def init_db():
                    (id INTEGER PRIMARY KEY, balance INTEGER DEFAULT 10000, last_bonus TEXT, name TEXT)''')
     try:
         cur.execute("ALTER TABLE users ADD COLUMN name TEXT")
-    except:
-        pass
+    except: pass
+    try:
+        cur.execute("ALTER TABLE users ADD COLUMN last_active TEXT") # Дата последнего сообщения
+    except: pass
+    try:
+        cur.execute("ALTER TABLE users ADD COLUMN last_steal TEXT") # Кулдаун на воровство
+    except: pass
+    try:
+        cur.execute("ALTER TABLE users ADD COLUMN shame_mark TEXT") # Клеймо позора
+    except: pass
+    
     cur.execute('''CREATE TABLE IF NOT EXISTS history (number INTEGER)''')
     conn.commit()
     conn.close()
@@ -89,8 +117,29 @@ async def cmd_start(message: Message):
 @dp.message(F.text == "👤 Профиль")
 @dp.message(F.text.lower() == "б")
 async def show_profile(message: Message):
-    balance, _ = get_user(message.from_user.id, message.from_user.full_name)
-    await message.answer(f"💰 Ваш баланс: **{fmt(balance)}** Угадаек.", parse_mode="Markdown")
+    uid = message.from_user.id
+    # Получаем базовые данные (баланс создастся, если юзера не было)
+    get_user(uid, message.from_user.full_name) 
+    
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    cur.execute("SELECT balance, shame_mark FROM users WHERE id = ?", (uid,))
+    res = cur.fetchone()
+    conn.close()
+    
+    balance = res[0]
+    shame_str = res[1]
+    
+    status = "🟢 Обычный гражданин"
+    if shame_str:
+        shame_time = datetime.fromisoformat(shame_str)
+        if datetime.now() < shame_time:
+            # Считаем, сколько осталось носить клеймо
+            left = shame_time - datetime.now()
+            m, _ = divmod(left.seconds, 60)
+            status = f"🤡 Неудачливый воришка (еще {m} мин.)"
+
+    await message.answer(f"👤 **Профиль:** {message.from_user.first_name}\n💰 **Баланс:** {fmt(balance)} Угадаек\n📝 **Статус:** {status}", parse_mode="Markdown")
 
 @dp.message(F.text.lower().startswith("п "), F.reply_to_message)
 async def transfer(message: Message):
@@ -469,7 +518,106 @@ async def accept_duel(message: Message):
         parse_mode="HTML", reply_markup=get_main_kb(message.chat.type)
     )
 
+# --- ИГРА: ВОРОВСТВО ---
+@dp.message(F.text.lower() == "украсть", F.reply_to_message)
+async def try_steal(message: Message):
+    if message.chat.type == "private":
+        return await message.answer("❌ Воровать можно только в темных переулках групп!")
 
+    thief = message.from_user
+    victim = message.reply_to_message.from_user
+
+    if thief.id == victim.id:
+        return await message.answer("🤔 Зачем воровать у самого себя?")
+    if victim.is_bot:
+        return await message.answer("🤖 У ботов железные карманы, ничего не выйдет!")
+
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+
+    # 1. Проверяем Вора
+    cur.execute("SELECT balance, last_steal FROM users WHERE id = ?", (thief.id,))
+    t_data = cur.fetchone()
+    if not t_data: return
+    t_bal, t_last_steal = t_data
+
+    now = datetime.now()
+    if t_last_steal:
+        last_s = datetime.fromisoformat(t_last_steal)
+        if now - last_s < timedelta(hours=2): # Кулдаун 2 часа
+            left = timedelta(hours=2) - (now - last_s)
+            h, rem = divmod(left.seconds, 3600)
+            m, _ = divmod(rem, 60)
+            return await message.answer(f"⏳ Полиция еще патрулирует твой район. Залечь на дно нужно еще {h} ч. {m} мин.")
+
+    # 2. Проверяем Жертву
+    cur.execute("SELECT balance, last_active FROM users WHERE id = ?", (victim.id,))
+    v_data = cur.fetchone()
+    if not v_data: return
+    v_bal, v_last_active = v_data
+
+    if v_bal < 5000:
+        return await message.answer("❌ У этой жертвы меньше 5 000 Угадаек. Воровать у бедных — не по понятиям!")
+
+    # Ставим клеймо времени вору (что он уже попытался украсть)
+    cur.execute("UPDATE users SET last_steal = ? WHERE id = ?", (now.isoformat(), thief.id))
+    conn.commit()
+
+    # 3. Шанс от "Сонного охранника"
+    chance = 10 
+    if v_last_active:
+        last_a = datetime.fromisoformat(v_last_active)
+        sleep_time = now - last_a
+
+        if sleep_time < timedelta(hours=1): chance = 10 
+        elif sleep_time < timedelta(hours=3): chance = 35 
+        elif sleep_time < timedelta(hours=6): chance = 60 
+        else: chance = 85 
+    else:
+        chance = 85 
+
+    # 4. Исход кражи
+    success = random.randint(1, 100) <= chance
+
+    if success:
+        steal_amount = int(v_bal * 0.10)
+        update_balance(victim.id, -steal_amount)
+        update_balance(thief.id, steal_amount)
+        conn.close()
+        
+        await message.answer(
+            f"🕵️ <b>ИДЕАЛЬНОЕ ОГРАБЛЕНИЕ!</b>\n\n"
+            f"Ты тихо подкрался и вытащил <b>{fmt(steal_amount)}</b> Угадаек у {victim.first_name}!\n"
+            f"<i>(Шанс успеха был: {chance}%)</i>",
+            parse_mode="HTML"
+        )
+    else:
+        # Вор пойман! Расчет штрафов.
+        fine_victim = 2000 # Жертве
+        fine_police = 1000 # Полиции (просто сгорает)
+        total_fine = fine_victim + fine_police
+        
+        # Если у вора нет 3000, забираем всё, что есть
+        if t_bal < total_fine:
+            total_fine = t_bal
+            fine_victim = t_bal // 2
+        
+        update_balance(thief.id, -total_fine)
+        update_balance(victim.id, fine_victim) 
+
+        # Вешаем клеймо позора на 3 часа
+        shame_until = (now + timedelta(hours=3)).isoformat()
+        cur.execute("UPDATE users SET shame_mark = ? WHERE id = ?", (shame_until, thief.id))
+        conn.commit()
+        conn.close()
+
+        await message.answer(
+            f"🚨 <b>ВОР ПОЙМАН ЗА РУКУ!</b>\n\n"
+            f"{victim.first_name} не спал! Охрана скрутила тебя.\n\n"
+            f"💸 Изъято: <b>{fmt(total_fine)}</b> Угадаек (из них {fmt(fine_victim)} отдано жертве).\n"
+            f"🤡 Ты получаешь статус <b>«Неудачливый воришка»</b> на 3 часа!",
+            parse_mode="HTML"
+        )
 
 #-----Админ-------
 @dp.message(F.reply_to_message, lambda m: m.from_user.id == ADMIN_ID)
