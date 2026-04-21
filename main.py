@@ -565,18 +565,19 @@ async def try_steal(message: Message):
     cur.execute("UPDATE users SET last_steal = ? WHERE id = ?", (now.isoformat(), thief.id))
     conn.commit()
 
-    # 3. Шанс от "Сонного охранника"
-    chance = 10 
+  # 3. Шанс от "Сонного охранника"
     if v_last_active:
         last_a = datetime.fromisoformat(v_last_active)
         sleep_time = now - last_a
 
-        if sleep_time < timedelta(hours=1): chance = 10 
+        if sleep_time < timedelta(hours=1): chance = 10  # Активен
         elif sleep_time < timedelta(hours=3): chance = 35 
         elif sleep_time < timedelta(hours=6): chance = 60 
-        else: chance = 85 
+        else: chance = 85 # Давно спит
     else:
-        chance = 85 
+        # Если активности нет, значит он только что зашел или база пуста
+        # Ставим 10%, чтобы не было халявного грабежа
+        chance = 10
 
     # 4. Исход кражи
     success = random.randint(1, 100) <= chance
