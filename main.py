@@ -41,7 +41,7 @@ class ActivityMiddleware(BaseMiddleware):
         return await handler(event, data)
 
 dp.message.middleware(ActivityMiddleware())
-
+@dp.message(GameStates.guessing)
 # --- ФУНКЦИИ ---
 async def init_db():
     if not os.path.exists("/app/data"):
@@ -400,8 +400,14 @@ async def start_guess(message: Message, state: FSMContext):
 
 @dp.message(GameStates.guessing)
 async def process_guess(message: Message, state: FSMContext):
+    if message.text.lower() == "отмена":
+        await state.clear()
+        return await message.answer("Игра отменена.", reply_markup=get_main_kb(message.chat.type))
+
     if not message.text.isdigit(): 
-        return await message.answer("Пожалуйста, введи только цифры!")
+        return await message.answer("Пожалуйста, введи только цифры! (Или напиши «Отмена»)")
+    
+    # ... дальше идет твой старый код проверки попыток ...
         
     guess = int(message.text)
     data = await state.get_data()
@@ -598,7 +604,18 @@ async def clan_withdraw(message: Message):
 
 
 # --- РУЛЕТКА ---
-@dp.message(lambda m: m.text and (m.text.split()[0].isdigit() or m.text.lower().startswith("все") or m.text.lower().startswith("всё")))
+def is_valid_bet_format(m: Message):
+    if not m.text: return False
+    parts = m.text.lower().split()
+    if len(parts) < 2: return False # Должно быть хотя бы 2 слова (сумма + ставка)
+    
+    first_word = parts[0]
+    if not (first_word.isdigit() or first_word in ["все", "всё"]):
+        return False
+        
+    return True
+
+@dp.message(is_valid_bet_format)
 async def take_bet(message: Message):
     if message.chat.type == "private":
         return await message.answer("🎰 В рулетку можно играть только в группах! Добавь меня в чат с друзьями.")
