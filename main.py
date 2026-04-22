@@ -237,20 +237,28 @@ async def get_bonus(message: Message):
         
     await message.answer(f"🎁 Ты получил бонус: **{fmt(bonus_amount)}** Угадаек!")
 
+# --- ЕДИНЫЙ РЕЙТИНГ (Кнопка + Команда) ---
 @dp.message(F.text == "🏆 Рейтинг")
-@dp.message(F.text.lower() == "/top")
+@dp.message(Command("top"))
 async def show_rating(message: Message):
     async with aiosqlite.connect(DB_PATH) as db:
         async with db.execute("SELECT name, balance, id FROM users ORDER BY balance DESC LIMIT 10") as cursor:
             top_users = await cursor.fetchall()
     
-    text = "🏆 <b>ТОП-10 БОГАЧЕЙ:</b>\n\n"
+    if not top_users:
+        return await message.answer("🏆 Список богачей пока пуст!")
+
+    text = "🏆 <b>ТОП-10 МИЛЛИОНЕРОВ:</b>\n\n"
     medals = ["🥇", "🥈", "🥉"]
+    
     for i, (name, bal, uid) in enumerate(top_users):
-        medal = medals[i] if i < 3 else f"<b>{i+1}.</b>"
+        place = medals[i] if i < 3 else f"<b>{i+1}.</b>"
         display_name = name if name else "Игрок"
-        text += f"{medal} <a href='tg://user?id={uid}'>{display_name}</a> — <b>{fmt(bal)}</b>\n"
-    await message.answer(text, parse_mode="HTML")
+        # Ссылка на профиль игрока
+        text += f"{place} <a href='tg://user?id={uid}'>{display_name}</a> — <b>{fmt(bal)}</b>\n"
+    
+    await message.answer(text, parse_mode="HTML", disable_web_page_preview=True)
+
 
 @dp.message(F.text == "📊 Ставки")
 async def show_my_bets(message: Message):
