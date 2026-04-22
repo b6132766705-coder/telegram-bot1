@@ -122,21 +122,28 @@ def get_main_kb(chat_type):
 @dp.message(Command("start"))
 async def cmd_start(message: Message):
     await get_user(message.from_user.id, message.from_user.full_name)
-    await message.answer(f"Привет! Я Бутя. Даю {fmt(10000)} Угадаек!", reply_markup=get_main_kb(message.chat.type))
+    await message.answer(
+        f"Привет! Я — <b>Угадайка бот</b>. 🎰\n"
+        f"Даю тебе стартовый капитал: {fmt(10000)} Угадаек!\n\n"
+        f"Жми «Играть», чтобы испытать удачу!", 
+        reply_markup=get_main_kb(message.chat.type),
+        parse_mode="HTML"
+    )
+
 
 # --- ПРАВИЛА ИГРЫ ---
 @dp.message(Command("rules"))
 async def cmd_rules(message: Message):
     rules_text = (
-        "📜 <b>Правила игры «Бутя»</b>\n\n"
-        "1. <b>Честная игра:</b> Не пытайся обмануть систему. Мы за азарт, но за честный!\n"
-        "2. <b>Бонусы:</b> Получай ежедневный бонус кнопкой 🎁 или приглашай друзей в группу (даем 10 000 за каждого!).\n"
-        "3. <b>Рулетка:</b> Ставь с умом. Если никто не сделал ставку, рулетка не крутится.\n"
-        "4. <b>Воровство:</b> Можно грабить богатых, но если поймают — станешь «Клоуном» на 3 часа и потеряешь деньги.\n"
-        "5. <b>Кланы:</b> Вступай в союзы, копи деньги в общую казну и захватывай рейтинг!\n\n"
-        "<i>Помни: это всего лишь игра на Угадайки, расслабься и получай удовольствие!</i>"
+        "📜 <b>Правила игры «Угадайка бот»</b>\n\n"
+        "1. <b>Честная игра:</b> Мы за азарт, но за честный! Любые попытки багоюза караются обнулением.\n"
+        "2. <b>Бонусы:</b> Забирай ежедневный подарок или приглашай друзей (10 000 за каждого!).\n"
+        "3. <b>Рулетка:</b> Чтобы запустить игру командой «го», ты должен сначала сделать ставку.\n"
+        "4. <b>Воровство:</b> Грабишь других — рискуешь стать «Клоуном» и потерять свои Угадайки.\n\n"
+        "<i>Играй, рискуй и стань самым богатым в нашем топе!</i>"
     )
     await message.answer(rules_text, parse_mode="HTML")
+
 
 # --- СПИСОК КОМАНД ---
 @dp.message(Command("commands"))
@@ -276,32 +283,24 @@ async def cancel_my_bets(message: Message):
 # --- НАГРАДА ЗА ПРИГЛАШЕНИЕ ---
 @dp.message(F.new_chat_members)
 async def welcome_and_reward(message: Message):
-    inviter = message.from_user  # Тот, кто добавил
-    new_members = message.new_chat_members  # Список тех, кого добавили
+    inviter = message.from_user
+    new_members = message.new_chat_members
     
-    # Считаем только реальных людей (не ботов), чтобы не абузили
     humans_added = [m for m in new_members if not m.is_bot]
-    
-    if not humans_added:
-        return
+    if not humans_added: return
 
-    reward_per_person = 10000
-    total_reward = len(humans_added) * reward_per_person
-    
-    # Сначала проверяем/создаем профиль пригласившего в базе
+    total_reward = len(humans_added) * 10000
     await get_user(inviter.id, inviter.full_name)
-    
-    # Начисляем награду
     await update_balance(inviter.id, total_reward)
     
-    # Красивое сообщение
     names = ", ".join([m.first_name for m in humans_added])
     await message.answer(
-        f"💎 <b>Ого, пополнение!</b>\n\n"
-        f"👤 {inviter.first_name} пригласил: <b>{names}</b>\n"
-        f"💰 За активное продвижение ты получаешь бонус: <b>+{fmt(total_reward)}</b> Угадаек!",
+        f"💎 <b>В Угадайка бот пополнение!</b>\n\n"
+        f"👤 {inviter.first_name} привел новых игроков: <b>{names}</b>\n"
+        f"💰 Твой баланс пополнен на <b>+{fmt(total_reward)}</b> Угадаек!",
         parse_mode="HTML"
     )
+
 
 
 # --- МИНИ-ИГРА: УГАДАЙ ЧИСЛО ---
