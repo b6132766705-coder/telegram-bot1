@@ -944,13 +944,11 @@ async def admin_reset(message: Message):
         logging.error(f"Ошибка при обнулении: {e}")
         await message.answer("❌ Произошла ошибка в базе данных.")
 
-@dp.message(F.reply_to_message, lambda m: m.from_user.id == ADMIN_ID)
+# --- АДМИН-КОМАНДЫ (ИСПРАВЛЕННЫЕ) ---
+
+@dp.message(F.reply_to_message, F.text.lower().startswith("+предмет"), lambda m: m.from_user.id == ADMIN_ID)
 async def admin_give_item(message: Message):
     parts = message.text.split()
-    # Проверяем, начинается ли команда с +предмет
-    if len(parts) < 2 or not parts[0].lower().startswith("+предмет"):
-        return
-
     try:
         item_name = parts[1]
         amount = int(parts[2]) if len(parts) > 2 else 1
@@ -969,12 +967,10 @@ async def admin_give_item(message: Message):
     except Exception as e:
         await message.answer("❌ Ошибка. Пример: <code>+предмет Клевер 5</code>")
 
-@dp.message(F.reply_to_message, lambda m: m.from_user.id == ADMIN_ID)
+
+@dp.message(F.reply_to_message, F.text.lower().startswith("-предмет"), lambda m: m.from_user.id == ADMIN_ID)
 async def admin_take_item(message: Message):
     parts = message.text.split()
-    if not parts[0].lower().startswith("-предмет") or len(parts) < 2:
-        return
-
     try:
         item_name = parts[1]
         amount = int(parts[2]) if len(parts) > 2 else 1
@@ -990,6 +986,17 @@ async def admin_take_item(message: Message):
         await message.answer(f"🧹 Админ изъял у игрока предмет: <b>{item_name}</b> ({amount} шт.)", parse_mode="HTML")
     except:
         await message.answer("❌ Ошибка. Пример: <code>-предмет Шар 1</code>")
+
+
+@dp.message(F.reply_to_message, lambda m: m.from_user.id == ADMIN_ID and m.text and m.text.startswith(("+", "-")) and "предмет" not in m.text.lower())
+async def admin_power(message: Message):
+    # Эта функция теперь сработает только на +5000 или -5000 (выдача денег)
+    try:
+        val = int(message.text.replace(" ", ""))
+        await update_balance(message.reply_to_message.from_user.id, val)
+        await message.answer(f"👑 Баланс изменен на {fmt(val)}")
+    except: pass
+
 
 
 # --- АДМИН ---
