@@ -100,6 +100,11 @@ async def update_balance(user_id, amount):
         await db.execute("UPDATE users SET balance = balance + ? WHERE id = ?", (int(amount), user_id))
         await db.commit()
 
+def fmt(num: int) -> str:
+    """Форматирует числа, добавляя пробелы (10000 -> 10 000)"""
+    return f"{num:,}".replace(",", " ")
+
+
 # --- СОСТОЯНИЯ ---
 class GameStates(StatesGroup):
     guessing = State()
