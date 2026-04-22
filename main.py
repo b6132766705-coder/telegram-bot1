@@ -70,6 +70,17 @@ async def init_db():
             
         await db.execute('''CREATE TABLE IF NOT EXISTS history (number INTEGER)''')
         await db.commit()
+
+    # ... твой старый код создания таблиц ...
+    async with aiosqlite.connect(DB_PATH) as db:
+        # Таблица инвентаря
+        await db.execute('''CREATE TABLE IF NOT EXISTS inventory 
+                           (user_id INTEGER, 
+                            item_name TEXT, 
+                            amount INTEGER DEFAULT 1,
+                            PRIMARY KEY (user_id, item_name))''')
+        await db.commit()
+
         
 def fmt(amount):
     return "{:,}".format(amount).replace(",", " ")
@@ -107,11 +118,13 @@ class ClanStates(StatesGroup):
 
 # --- КЛАВИАТУРЫ ---
 def get_main_kb(chat_type):
-    if chat_type == "private":
-        return ReplyKeyboardMarkup(keyboard=[
-            [KeyboardButton(text="🎮 Играть"), KeyboardButton(text="👤 Профиль")],
-            [KeyboardButton(text="🏆 Рейтинг"), KeyboardButton(text="🎁 Бонус")]
-        ], resize_keyboard=True)
+    buttons = [
+        [KeyboardButton(text="🎮 Играть"), KeyboardButton(text="👤 Профиль")],
+        [KeyboardButton(text="🏆 Рейтинг"), KeyboardButton(text="🎒 Инвентарь")], # Новая кнопка
+        [KeyboardButton(text="🎁 Бонус")]
+    ]
+    return ReplyKeyboardMarkup(keyboard=buttons, resize_keyboard=True)
+
     return ReplyKeyboardMarkup(keyboard=[
         [KeyboardButton(text="🎮 Играть"), KeyboardButton(text="👤 Профиль")],
         [KeyboardButton(text="📊 Ставки"), KeyboardButton(text="🚫 Отмена")]
@@ -286,6 +299,24 @@ async def cancel_my_bets(message: Message):
             await update_balance(uid, refund)
             return await message.answer(f"✅ Ставки отменены. Возвращено: {fmt(refund)}")
     await message.answer("У тебя нет активных Ставок")
+
+@dp.message(F.text == "🎒 Инвентарь")
+async def show_inventory(message: Message):
+    uid = message.from_user.id
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute("SELECT item_name, amount FROM inventory WHERE user_id = ? AND amount > 0", (uid,)) as cur:
+            items = await cur.fetchall()
+    
+    if not items:
+        return await message.answer("🎒 Твой инвентарь пуст. Пора бы чем-то закупиться!")
+    
+    text = "🎒 <b>Твой инвентарь:</b>\n\n"
+    for name, count in items:
+        text += f"• <b>{name}</b> — {count} шт.\n"
+    
+    text += "\n<i>Предметы можно использовать или продать (скоро!)</i>"
+    await message.answer(text, parse_mode="HTML")
+
 
 # --- НАГРАДА ЗА ПРИГЛАШЕНИЕ ---
 @dp.message(F.new_chat_members)
