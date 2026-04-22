@@ -988,14 +988,17 @@ async def admin_take_item(message: Message):
         await message.answer("❌ Ошибка. Пример: <code>-предмет Шар 1</code>")
 
 
-@dp.message(F.reply_to_message, lambda m: m.from_user.id == ADMIN_ID and m.text and m.text.startswith(("+", "-")) and "предмет" not in m.text.lower())
-async def admin_power(message: Message):
-    # Эта функция теперь сработает только на +5000 или -5000 (выдача денег)
-    try:
-        val = int(message.text.replace(" ", ""))
-        await update_balance(message.reply_to_message.from_user.id, val)
-        await message.answer(f"👑 Баланс изменен на {fmt(val)}")
-    except: pass
+
+# Стало:
+@dp.message(F.reply_to_message, lambda m: m.from_user.id == ADMIN_ID)
+async def admin_balance_change(message: Message):
+    if message.text.startswith(("+", "-")) and "предмет" not in message.text.lower():
+        try:
+            val = int(message.text.replace(" ", ""))
+            await update_balance(message.reply_to_message.from_user.id, val)
+            await message.answer(f"👑 Изменено на {fmt(val)}")
+        except: pass
+
 
 
 
