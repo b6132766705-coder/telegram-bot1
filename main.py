@@ -228,6 +228,37 @@ async def cancel_my_bets(message: Message):
             return await message.answer(f"✅ Ставки отменены. Возвращено: {fmt(refund)}")
     await message.answer("У тебя нет активных Ставок")
 
+# --- НАГРАДА ЗА ПРИГЛАШЕНИЕ ---
+@dp.message(F.new_chat_members)
+async def welcome_and_reward(message: Message):
+    inviter = message.from_user  # Тот, кто добавил
+    new_members = message.new_chat_members  # Список тех, кого добавили
+    
+    # Считаем только реальных людей (не ботов), чтобы не абузили
+    humans_added = [m for m in new_members if not m.is_bot]
+    
+    if not humans_added:
+        return
+
+    reward_per_person = 10000
+    total_reward = len(humans_added) * reward_per_person
+    
+    # Сначала проверяем/создаем профиль пригласившего в базе
+    await get_user(inviter.id, inviter.full_name)
+    
+    # Начисляем награду
+    await update_balance(inviter.id, total_reward)
+    
+    # Красивое сообщение
+    names = ", ".join([m.first_name for m in humans_added])
+    await message.answer(
+        f"💎 <b>Ого, пополнение!</b>\n\n"
+        f"👤 {inviter.first_name} пригласил: <b>{names}</b>\n"
+        f"💰 За активное продвижение ты получаешь бонус: <b>+{fmt(total_reward)}</b> Угадаек!",
+        parse_mode="HTML"
+    )
+
+
 # --- МИНИ-ИГРА: УГАДАЙ ЧИСЛО ---
 @dp.message(F.text == "🎮 Играть")
 async def start_guess(message: Message, state: FSMContext):
