@@ -41,7 +41,7 @@ class ActivityMiddleware(BaseMiddleware):
         return await handler(event, data)
 
 dp.message.middleware(ActivityMiddleware())
-@dp.message(GameStates.guessing)
+
 # --- ФУНКЦИИ ---
 async def init_db():
     if not os.path.exists("/app/data"):
