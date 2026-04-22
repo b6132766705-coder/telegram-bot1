@@ -330,12 +330,22 @@ async def take_bet(message: Message):
 @dp.message(F.text.lower() == "го")
 async def spin(message: Message):
     if message.chat.type == "private":
-        return await message.answer("🎰 В рулетку можно играть только в группах! Добавь меня в чат с друзьями.")
+        return await message.answer("🎰 В рулетку можно играть только в группах!")
     
     cid = message.chat.id
+    uid = message.from_user.id # ID того, кто написал "го"
+
+    # 1. Проверяем, есть ли вообще ставки в этом чате
     if cid not in pending_bets or not pending_bets[cid]:
-        return await message.answer("🎰 Ставок пока нет!")
+        return await message.answer("🎰 Ставок пока нет! Сначала сделайте ставку.")
+
+    # 2. ПРОВЕРКА: Делал ли ставку именно этот игрок?
+    user_has_bet = any(bet['user_id'] == uid for bet in pending_bets[cid])
     
+    if not user_has_bet:
+        return await message.answer(f"❌ {message.from_user.first_name}, ты не можешь запустить рулетку, так как не сделал ставку!")
+
+    # --- Дальше идет обычный код вращения ---
     win_num = random.randint(0, 36)
     
     async with aiosqlite.connect(DB_PATH) as db:
@@ -348,11 +358,11 @@ async def spin(message: Message):
     
     users_results = {} 
     for bet in pending_bets[cid]:
-        uid = bet['user_id']
-        if uid not in users_results:
-            users_results[uid] = {"name": bet['name'], "results": [], "total_win": 0, "total_spent": 0}
+        u_id = bet['user_id']
+        if u_id not in users_results:
+            users_results[u_id] = {"name": bet['name'], "results": [], "total_win": 0, "total_spent": 0}
         
-        users_results[uid]["total_spent"] += bet['amount'] * len(bet['targets'])
+        users_results[u_id]["total_spent"] += bet['amount'] * len(bet['targets'])
         for t in bet['targets']:
             is_win = False
             mult = 0
@@ -369,20 +379,21 @@ async def spin(message: Message):
             
             if is_win:
                 win_v = int(bet['amount'] * mult)
-                users_results[uid]["total_win"] += win_v
-                users_results[uid]["results"].append(f"✅ {fmt(bet['amount'])} ➔ {t} (+{fmt(win_v)})")
+                users_results[u_id]["total_win"] += win_v
+                users_results[u_id]["results"].append(f"✅ {fmt(bet['amount'])} ➔ {t} (+{fmt(win_v)})")
             else:
-                users_results[uid]["results"].append(f"❌ {fmt(bet['amount'])} ➔ {t}")
+                users_results[u_id]["results"].append(f"❌ {fmt(bet['amount'])} ➔ {t}")
 
-    for uid, data in users_results.items():
+    for u_id, data in users_results.items():
         res_text += f"👤 {data['name']}:\n" + "\n".join(data['results']) + "\n"
         prof = data['total_win'] - data['total_spent']
         res_text += f"💰 Итог: {'+' if prof >= 0 else ''}{fmt(prof)}\n\n"
         if data['total_win'] > 0: 
-            await update_balance(uid, data['total_win'])
+            await update_balance(u_id, data['total_win'])
             
     pending_bets[cid] = [] 
     await message.answer(res_text)
+
 
 @dp.message(F.text.lower() == "лог")
 async def show_log(message: Message):
