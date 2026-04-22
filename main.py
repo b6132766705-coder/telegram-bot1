@@ -858,93 +858,59 @@ async def accept_duel(message: Message):
 
 # --- ИГРА: ВОРОВСТВО ---
 @dp.message(F.text.lower() == "украсть", F.reply_to_message)
-async def try_steal(message: Message):
-    if message.chat.type == "private":
-        return await message.answer("❌ Воровать можно только в темных переулках групп!")
-
-    thief = message.from_user
-    victim = message.reply_to_message.from_user
-
-    if thief.id == victim.id:
-        return await message.answer("🤔 Зачем воровать у самого себя?")
-    if victim.is_bot:
-        return await message.answer("🤖 У ботов железные карманы, ничего не выйдет!")
+async def steal_money(message: Message):
+    stealer_id = message.from_user.id
+    victim_id = message.reply_to_message.from_user.id
+    
+    if stealer_id == victim_id:
+        return await message.answer("🤔 Грабить самого себя — это как-то странно...")
 
     async with aiosqlite.connect(DB_PATH) as db:
-        async with db.execute("SELECT balance, last_steal FROM users WHERE id = ?", (thief.id,)) as cur:
-            t_data = await cur.fetchone()
-            
-        if not t_data: return
-        t_bal, t_last_steal = t_data
-
-        now = datetime.now()
-        if t_last_steal:
-            last_s = datetime.fromisoformat(t_last_steal)
-            if now - last_s < timedelta(hours=2):
-                left = timedelta(hours=2) - (now - last_s)
-                h, rem = divmod(left.seconds, 3600)
-                m, _ = divmod(rem, 60)
-                return await message.answer(f"⏳ Полиция еще патрулирует твой район. Залечь на дно нужно еще {h} ч. {m} мин.")
-
-        async with db.execute("SELECT balance, last_active FROM users WHERE id = ?", (victim.id,)) as cur:
-            v_data = await cur.fetchone()
-            
-        if not v_data: return
-        v_bal, v_last_active = v_data
-
-        if v_bal < 5000:
-            return await message.answer("❌ У этой жертвы меньше 5 000 Угадаек. Воровать у бедных — не по понятиям!")
-
-        await db.execute("UPDATE users SET last_steal = ? WHERE id = ?", (now.isoformat(), thief.id))
-        await db.commit()
-
-        if v_last_active:
-            last_a = datetime.fromisoformat(v_last_active)
-            sleep_time = now - last_a
-
-            if sleep_time < timedelta(hours=1): chance = 10  
-            elif sleep_time < timedelta(hours=3): chance = 35 
-            elif sleep_time < timedelta(hours=6): chance = 60 
-            else: chance = 85 
-        else:
-            chance = 10
-
-        success = random.randint(1, 100) <= chance
-
-        if success:
-            steal_amount = int(v_bal * 0.10)
-            await update_balance(victim.id, -steal_amount) # Исправлено на вызов функции
-            await update_balance(thief.id, steal_amount)   # Исправлено на вызов функции
-            
-            await message.answer(
-                f"🕵️ <b>ИДЕАЛЬНОЕ ОГРАБЛЕНИЕ!</b>\n\n"
-                f"Ты тихо подкрался и вытащил <b>{fmt(steal_amount)}</b> Угадаек у {victim.first_name}!\n"
-                f"<i>(Шанс успеха был: {chance}%)</i>",
-                parse_mode="HTML"
-            )
-        else:
-            fine_victim = 2000 
-            fine_police = 1000 
-            total_fine = fine_victim + fine_police
-            
-            if t_bal < total_fine:
-                total_fine = t_bal
-                fine_victim = t_bal // 2
-            
-            await update_balance(thief.id, -total_fine)   # Исправлено на вызов функции
-            await update_balance(victim.id, fine_victim)  # Исправлено на вызов функции
-
-            shame_until = (now + timedelta(hours=3)).isoformat()
-            await db.execute("UPDATE users SET shame_mark = ? WHERE id = ?", (shame_until, thief.id))
+        # 1. Проверяем, есть ли у жертвы Щит
+        async with db.execute("SELECT amount FROM inventory WHERE user_id = ? AND item_name = 'Щит'", (victim_id,)) as cur:
+            shield_row = await cur.fetchone()
+        
+        if shield_row and shield_row[0] > 0:
+            # Щит сработал! Уменьшаем количество щитов у жертвы
+            await db.execute("UPDATE inventory SET amount = amount - 1 WHERE user_id = ? AND item_name = 'Щит'", (victim_id,))
             await db.commit()
-
-            await message.answer(
-                f"🚨 <b>ВОР ПОЙМАН ЗА РУКУ!</b>\n\n"
-                f"{victim.first_name} не спал! Охрана скрутила тебя.\n\n"
-                f"💸 Изъято: <b>{fmt(total_fine)}</b> Угадаек (из них {fmt(fine_victim)} отдано жертве).\n"
-                f"🤡 Ты получаешь статус <b>«Неудачливый воришка»</b> на 3 часа!",
+            
+            return await message.answer(
+                f"🛡 <b>ЩИТ СРАБОТАЛ!</b>\n\n"
+                f"👤 {message.reply_to_message.from_user.first_name} был защищен магическим щитом!\n"
+                f"🕵️‍♂️ Вор уходит ни с чем, а один Щит жертвы разрушен.",
                 parse_mode="HTML"
             )
+
+        # 2. Если щита нет, идет обычная логика ограбления
+        # (Тут твой старый код получения балансов и шанса успеха)
+        async with db.execute("SELECT balance FROM users WHERE id = ?", (victim_id,)) as cur:
+            victim_row = await cur.fetchone()
+            victim_bal = victim_row[0] if victim_row else 0
+
+        if victim_bal < 1000:
+            return await message.answer("📦 У бедняка нечего воровать. Подожди, пока он подзаработает!")
+
+        chance = random.randint(1, 100)
+        if chance <= 35:  # Успех 35%
+            steal_amount = int(victim_bal * random.uniform(0.1, 0.3)) # Крадем 10-30%
+            
+            await db.execute("UPDATE users SET balance = balance - ? WHERE id = ?", (steal_amount, victim_id))
+            await db.execute("UPDATE users SET balance = balance + ? WHERE id = ?", (steal_amount, stealer_id))
+            await db.commit()
+            
+            await message.answer(
+                f"👤 <b>{message.from_user.first_name}</b> совершил налет!\n"
+                f"💰 Украдено: <b>{fmt(steal_amount)}</b> Угадаек у {message.reply_to_message.from_user.first_name}!",
+                parse_mode="HTML"
+            )
+        else:
+            # Провал — штраф или статус клоуна
+            penalty = 5000
+            await db.execute("UPDATE users SET balance = MAX(0, balance - ?) WHERE id = ?", (penalty, stealer_id))
+            await db.commit()
+            await message.answer(f"🤡 <b>Неудача!</b>\n\nВор споткнулся и выронил <b>{fmt(penalty)}</b> Угадаек, пока убегал!")
+
 
 # --- АДМИН-ЧИТ: ОБНУЛЕНИЕ ТАЙМЕРОВ ---
 @dp.message(lambda m: m.text and m.text.lower().startswith("обнулить"))
