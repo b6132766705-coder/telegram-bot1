@@ -467,7 +467,7 @@ async def clan_creation_start(call: CallbackQuery, state: FSMContext):
 
     await call.message.edit_text("📝 Введи название для клана (до 20 символов):")
     await state.set_state(ClanStates.waiting_for_name)
-
+    await call.answer()
 @dp.message(ClanStates.waiting_for_name)
 async def process_clan_name(message: Message, state: FSMContext):
     uid, clan_name = message.from_user.id, message.text.strip()
@@ -868,56 +868,75 @@ async def accept_duel(message: Message):
 @dp.message(F.text.lower() == "украсть", F.reply_to_message)
 async def steal_money(message: Message):
     stealer_id = message.from_user.id
+    stealer_name = message.from_user.first_name
     victim_id = message.reply_to_message.from_user.id
+    victim_name = message.reply_to_message.from_user.first_name
     
     if stealer_id == victim_id:
-        return await message.answer("🤔 Грабить самого себя — это как-то странно...")
+        return await message.answer("🤔 Решил обчистить собственные карманы? Оригинально, но нет.")
 
     async with aiosqlite.connect(DB_PATH) as db:
-        # 1. Проверяем, есть ли у жертвы Щит
+        # 1. Проверка щита (оставляем, это важная механика)
         async with db.execute("SELECT amount FROM inventory WHERE user_id = ? AND item_name = 'Щит'", (victim_id,)) as cur:
             shield_row = await cur.fetchone()
         
         if shield_row and shield_row[0] > 0:
-            # Щит сработал! Уменьшаем количество щитов у жертвы
             await db.execute("UPDATE inventory SET amount = amount - 1 WHERE user_id = ? AND item_name = 'Щит'", (victim_id,))
             await db.commit()
-            
             return await message.answer(
-                f"🛡 <b>ЩИТ СРАБОТАЛ!</b>\n\n"
-                f"👤 {message.reply_to_message.from_user.first_name} был защищен магическим щитом!\n"
-                f"🕵️‍♂️ Вор уходит ни с чем, а один Щит жертвы разрушен.",
+                f"🛡 <b>Система безопасности!</b>\n\n"
+                f"У {victim_name} сработал <b>Щит</b>. {stealer_name}, тебя чуть не ударило током! Попытка провалена.",
                 parse_mode="HTML"
             )
 
-        # 2. Если щита нет, идет обычная логика ограбления
-        # (Тут твой старый код получения балансов и шанса успеха)
+        # 2. Проверка баланса жертвы
         async with db.execute("SELECT balance FROM users WHERE id = ?", (victim_id,)) as cur:
-            victim_row = await cur.fetchone()
-            victim_bal = victim_row[0] if victim_row else 0
+            v_row = await cur.fetchone()
+            victim_bal = v_row[0] if v_row else 0
 
-        if victim_bal < 1000:
-            return await message.answer("📦 У бедняка нечего воровать. Подожди, пока он подзаработает!")
+        if victim_bal < 2000:
+            return await message.answer(f"📦 У {victim_name} в карманах только фантики. Грабить тут нечего.")
 
+        # 3. Шанс успеха
         chance = random.randint(1, 100)
-        if chance <= 35:  # Успех 35%
-            steal_amount = int(victim_bal * random.uniform(0.1, 0.3)) # Крадем 10-30%
+        
+        if chance <= 30:  # Успех (30%)
+            steal_percent = random.uniform(0.15, 0.4) # Крадем от 15% до 40%
+            steal_amount = int(victim_bal * steal_percent)
             
             await db.execute("UPDATE users SET balance = balance - ? WHERE id = ?", (steal_amount, victim_id))
             await db.execute("UPDATE users SET balance = balance + ? WHERE id = ?", (steal_amount, stealer_id))
             await db.commit()
             
             await message.answer(
-                f"👤 <b>{message.from_user.first_name}</b> совершил налет!\n"
-                f"💰 Украдено: <b>{fmt(steal_amount)}</b> Угадаек у {message.reply_to_message.from_user.first_name}!",
+                f"🥷 <b>Чистая работа!</b>\n\n"
+                f"Игрок <b>{stealer_name}</b> виртуозно обчистил счета {victim_name}.\n"
+                f"💸 Теневой доход составил: <b>{fmt(steal_amount)}</b> Угадаек!",
                 parse_mode="HTML"
             )
-        else:
-            # Провал — штраф или статус клоуна
-            penalty = 5000
+            
+        elif chance <= 60: # Неудача: Штраф от полиции (30%)
+            penalty = int(victim_bal * 0.1) # Штраф 10% от денег жертвы (но платит вор)
             await db.execute("UPDATE users SET balance = MAX(0, balance - ?) WHERE id = ?", (penalty, stealer_id))
             await db.commit()
-            await message.answer(f"🤡 <b>Неудача!</b>\n\nВор споткнулся и выронил <b>{fmt(penalty)}</b> Угадаек, пока убегал!")
+            
+            await message.answer(
+                f"🚨 <b>Облава!</b>\n\n"
+                f"{stealer_name}, тебя засекли камеры! Пришлось дать взятку полиции в размере <b>{fmt(penalty)}</b>, чтобы не сесть.",
+                parse_mode="HTML"
+            )
+            
+        else: # Худший исход: Клеймо позора (40%)
+            shame_until = (datetime.now() + timedelta(hours=2)).isoformat()
+            await db.execute("UPDATE users SET shame_mark = ? WHERE id = ?", (shame_until, stealer_id))
+            await db.commit()
+            
+            await message.answer(
+                f"📸 <b>Лицо крупным планом!</b>\n\n"
+                f"Попытка кражи провалена. Фото <b>{stealer_name}</b> теперь висит на доске позора во всех казино! "
+                f"На ближайшие 2 часа ты — <b>Клоун</b> 🤡.",
+                parse_mode="HTML"
+            )
 
 
 # --- АДМИН-ЧИТ: ОБНУЛЕНИЕ ТАЙМЕРОВ ---
