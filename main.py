@@ -70,6 +70,9 @@ async def init_db():
             
         await db.execute('''CREATE TABLE IF NOT EXISTS history (number INTEGER)''')
         await db.commit()
+        
+def fmt(amount):
+    return "{:,}".format(amount).replace(",", " ")
 
 
 async def get_user(user_id, name):
@@ -256,7 +259,7 @@ async def process_guess(message: Message, state: FSMContext):
         await state.clear()
 
 # ==========================================
-#               СИСТЕМА КЛАНОВ (ОБНОВЛЕННАЯ)
+#               СИСТЕМА КЛАНОВ (ФИНАЛЬНАЯ)
 # ==========================================
 
 @dp.message(F.text.lower() == "клан")
@@ -268,16 +271,14 @@ async def clan_info(message: Message, state: FSMContext):
             clan_id = user_clan[0] if user_clan else None
 
         if not clan_id:
-            # Если нет клана, предлагаем создать через ИНЛАЙН-кнопку
             kb = InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(text="🛠 Создать клан (200 000)", callback_data="start_clan_creation")]
             ])
             return await message.answer(
-                "🛡 Ты не состоишь в клане.\nХочешь создать свой собственный?\n\nИли напиши `Вступить [Название]`, чтобы подать заявку в существующий.",
-                reply_markup=kb, parse_mode="Markdown"
+                "🛡 <b>Ты не состоишь в клане.</b>\nХочешь создать свой собственный?\n\nИли напиши <code>Вступить [Название]</code>, чтобы подать заявку.",
+                reply_markup=kb, parse_mode="HTML"
             )
 
-        # Если клан есть, показываем инфу
         async with db.execute("SELECT name, owner_id, balance FROM clans WHERE id = ?", (clan_id,)) as cur:
             clan_data = await cur.fetchone()
             if not clan_data: return
@@ -287,129 +288,76 @@ async def clan_info(message: Message, state: FSMContext):
             members_count = (await cur.fetchone())[0]
 
     role = "👑 Лидер" if uid == owner_id else "👤 Участник"
-    
-    await message.answer(f"🛡 <b>Клан:</b> {clan_name}\n👥 <b>Участников:</b> {members_count}\n💰 <b>Казна:</b> {fmt(clan_bal)} Угадаек\n\nТвоя роль: {role}\n\n<i>Команды:\n• Покинуть клан\n• В казну [Сумма]\n• Из казны [Сумма] (только Лидер)</i>", parse_mode="HTML")
+    await message.answer(
+        f"🛡 <b>Клан:</b> {clan_name}\n"
+        f"👥 <b>Участников:</b> {members_count}\n"
+        f"💰 <b>Казна:</b> {fmt(clan_bal)} Угадаек\n\n"
+        f"Твоя роль: {role}\n\n"
+        f"<i>Команды:\n• Покинуть клан\n• В казну [Сумма]\n• Из казны [Сумма] (только Лидер)</i>", 
+        parse_mode="HTML"
+    )
 
-# Обработка нажатия на кнопку "Создать клан"
 @dp.callback_query(F.data == "start_clan_creation")
 async def clan_creation_start(call: CallbackQuery, state: FSMContext):
-    uid = call.from_user.id
-    res = await get_user(uid, call.from_user.full_name)
-    bal = res[0]
-    
-    if bal < 200000:
-        await call.answer("❌ У тебя нет 200 000 Угадаек для создания клана!", show_alert=True)
-        return
+    res = await get_user(call.from_user.id, call.from_user.full_name)
+    if res[0] < 200000:
+        return await call.answer("❌ Нужно 200 000 Угадаек!", show_alert=True)
 
-    await call.message.edit_text("📝 <b>Отлично!</b> Теперь отправь мне в чат название для своего будущего клана (от 1 до 20 символов):", parse_mode="HTML")
+    await call.message.edit_text("📝 Введи название для клана (до 20 символов):")
     await state.set_state(ClanStates.waiting_for_name)
-    await call.answer()
 
-# Ждем, пока юзер напишет название
 @dp.message(ClanStates.waiting_for_name)
 async def process_clan_name(message: Message, state: FSMContext):
-    uid = message.from_user.id
-    clan_name = message.text.strip()
-    
-    if not clan_name or len(clan_name) > 20:
-        return await message.answer("❌ Название клана должно быть от 1 до 20 символов! Попробуй еще раз (просто напиши название).")
-
-    res = await get_user(uid, message.from_user.full_name)
-    bal = res[0]
-    
-    if bal < 200000:
-        await state.clear()
-        return await message.answer("❌ Пока ты думал над названием, деньги кончились. Нужно 200 000 Угадаек.")
+    uid, clan_name = message.from_user.id, message.text.strip()
+    if len(clan_name) > 20: return await message.answer("❌ Слишком длинное название!")
 
     async with aiosqlite.connect(DB_PATH) as db:
         async with db.execute("SELECT id FROM clans WHERE name = ?", (clan_name,)) as cur:
-            if await cur.fetchone():
-                return await message.answer("❌ Клан с таким названием уже существует! Придумай другое.")
+            if await cur.fetchone(): return await message.answer("❌ Название занято!")
 
-        # Списываем деньги и создаем клан
-        await db.execute("UPDATE users SET balance = balance - 200000 WHERE id = ?", (uid,))
+        await update_balance(uid, -200000)
         await db.execute("INSERT INTO clans (name, owner_id, balance) VALUES (?, ?, 0)", (clan_name, uid))
-        
-        async with db.execute("SELECT id FROM clans WHERE name = ?", (clan_name,)) as cur:
-            new_clan_id = (await cur.fetchone())[0]
-            
-        await db.execute("UPDATE users SET clan_id = ? WHERE id = ?", (new_clan_id, uid))
+        async with db.execute("SELECT last_insert_rowid()") as cur:
+            new_id = (await cur.fetchone())[0]
+        await db.execute("UPDATE users SET clan_id = ? WHERE id = ?", (new_id, uid))
         await db.commit()
 
     await state.clear()
-    await message.answer(f"🛡 <b>Клан «{clan_name}» успешно создан!</b>\nСписано 200 000 Угадаек.", parse_mode="HTML")
+    await message.answer(f"🛡 Клан <b>{clan_name}</b> создан!", parse_mode="HTML")
 
-# --- ЗАЯВКИ НА ВСТУПЛЕНИЕ ---
 @dp.message(F.text.lower().startswith("вступить "))
-async def request_join_clan(message: Message):
-    uid = message.from_user.id
-    clan_name = message.text[9:].strip()
-
-    if message.chat.type == "private":
-        return await message.answer("❌ Заявки в клан лучше подавать прямо в группе, чтобы лидер увидел уведомление!")
-
+async def request_join(message: Message):
+    uid, clan_name = message.from_user.id, message.text[9:].strip()
     async with aiosqlite.connect(DB_PATH) as db:
         async with db.execute("SELECT clan_id FROM users WHERE id = ?", (uid,)) as cur:
-            if (await cur.fetchone())[0]:
-                return await message.answer("❌ Ты уже состоишь в клане!")
-
-        async with db.execute("SELECT id, owner_id FROM clans WHERE name = ?", (clan_name,)) as cur:
-            clan_data = await cur.fetchone()
-            if not clan_data:
-                return await message.answer("❌ Такого клана не существует! Проверь название.")
-            
-            clan_id, owner_id = clan_data
-
-    # Создаем инлайн-кнопки для лидера
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [
-            InlineKeyboardButton(text="✅ Принять", callback_data=f"c_acc_{uid}_{clan_id}"),
-            InlineKeyboardButton(text="❌ Отклонить", callback_data=f"c_rej_{uid}_{clan_id}")
-        ]
-    ])
-
-    # Тегаем лидера, чтобы он пришел и нажал кнопку
-    await message.answer(
-        f"🔔 <a href='tg://user?id={owner_id}'>Лидер клана</a>!\nИгрок <b>{message.from_user.first_name}</b> подал заявку на вступление в клан «{clan_name}».",
-        reply_markup=kb, parse_mode="HTML"
-    )
-
-# Обработка кнопок "Принять" и "Отклонить"
-@dp.callback_query(F.data.startswith("c_acc_") | F.data.startswith("c_rej_"))
-async def process_clan_request(call: CallbackQuery):
-    parts = call.data.split("_")
-    action = parts[1] # acc или rej
-    applicant_id = int(parts[2])
-    clan_id = int(parts[3])
-    leader_id = call.from_user.id
-
-    async with aiosqlite.connect(DB_PATH) as db:
-        # Проверяем, действительно ли нажал лидер клана
-        async with db.execute("SELECT name, owner_id FROM clans WHERE id = ?", (clan_id,)) as cur:
-            clan_data = await cur.fetchone()
-            if not clan_data:
-                return await call.answer("Клан был распущен.", show_alert=True)
-            clan_name, true_owner_id = clan_data
-
-        if leader_id != true_owner_id:
-            return await call.answer("❌ Эту кнопку может нажимать только лидер клана!", show_alert=True)
-
-        if action == "acc":
-            # Проверяем, не вступил ли уже кандидат куда-то, пока ждал
-            async with db.execute("SELECT clan_id FROM users WHERE id = ?", (applicant_id,)) as cur:
-                user_data = await cur.fetchone()
-                if user_data and user_data[0]:
-                    await call.message.edit_text(f"❌ Кандидат уже передумал и вступил в другой клан.")
-                    return await call.answer()
-
-            # Принимаем
-            await db.execute("UPDATE users SET clan_id = ? WHERE id = ?", (clan_id, applicant_id))
-            await db.commit()
-            await call.message.edit_text(f"✅ Лидер принял игрока в клан <b>«{clan_name}»</b>!", parse_mode="HTML")
+            if (await cur.fetchone())[0]: return await message.answer("❌ Ты уже в клане!")
         
-        elif action == "rej":
-            # Отклоняем
-            await call.message.edit_text(f"❌ Лидер отклонил заявку в клан <b>«{clan_name}»</b>.", parse_mode="HTML")
+        async with db.execute("SELECT id, owner_id FROM clans WHERE name = ?", (clan_name,)) as cur:
+            data = await cur.fetchone()
+            if not data: return await message.answer("❌ Клан не найден.")
+            cid, oid = data
+
+    kb = InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="✅ Принять", callback_data=f"c_acc_{uid}_{cid}"),
+        InlineKeyboardButton(text="❌ Отклонить", callback_data=f"c_rej_{uid}_{cid}")
+    ]])
+    await message.answer(f"🔔 Лидер! Игрок {message.from_user.first_name} хочет в клан <b>{clan_name}</b>", reply_markup=kb, parse_mode="HTML")
+
+@dp.callback_query(F.data.startswith("c_acc_") | F.data.startswith("c_rej_"))
+async def clan_decision(call: CallbackQuery):
+    act, target_id, cid = call.data.split("_")[1], int(call.data.split("_")[2]), int(call.data.split("_")[3])
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute("SELECT owner_id FROM clans WHERE id = ?", (cid,)) as cur:
+            if (await cur.fetchone())[0] != call.from_user.id:
+                return await call.answer("❌ Ты не лидер!", show_alert=True)
+        
+        if act == "acc":
+            await db.execute("UPDATE users SET clan_id = ? WHERE id = ?", (cid, target_id))
+            await db.commit()
+            await call.message.edit_text("✅ Игрок принят!")
+        else:
+            await call.message.edit_text("❌ Заявка отклонена.")
+
 
     await call.answer()
 
