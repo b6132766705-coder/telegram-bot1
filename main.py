@@ -929,6 +929,32 @@ async def admin_reset(message: Message):
         logging.error(f"Ошибка при обнулении: {e}")
         await message.answer("❌ Произошла ошибка в базе данных.")
 
+@dp.message(F.reply_to_message, lambda m: m.from_user.id == ADMIN_ID)
+async def admin_give_item(message: Message):
+    parts = message.text.split()
+    # Проверяем, начинается ли команда с +предмет
+    if len(parts) < 2 or not parts[0].lower().startswith("+предмет"):
+        return
+
+    try:
+        item_name = parts[1]
+        amount = int(parts[2]) if len(parts) > 2 else 1
+        target_id = message.reply_to_message.from_user.id
+        target_name = message.reply_to_message.from_user.first_name
+
+        async with aiosqlite.connect(DB_PATH) as db:
+            await db.execute("""
+                INSERT INTO inventory (user_id, item_name, amount) 
+                VALUES (?, ?, ?) 
+                ON CONFLICT(user_id, item_name) DO UPDATE SET amount = amount + ?
+            """, (target_id, item_name, amount, amount))
+            await db.commit()
+        
+        await message.answer(f"🪄 Админ выдал <b>{target_name}</b> предмет: <b>{item_name}</b> ({amount} шт.)", parse_mode="HTML")
+    except Exception as e:
+        await message.answer("❌ Ошибка. Пример: <code>+предмет Клевер 5</code>")
+
+
 # --- АДМИН ---
 @dp.message(F.reply_to_message, lambda m: m.from_user.id == ADMIN_ID)
 async def admin_power(message: Message):
