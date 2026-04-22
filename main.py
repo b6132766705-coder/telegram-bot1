@@ -995,6 +995,28 @@ async def admin_give_item(message: Message):
     except Exception as e:
         await message.answer("❌ Ошибка. Пример: <code>+предмет Клевер 5</code>")
 
+@dp.message(F.reply_to_message, lambda m: m.from_user.id == ADMIN_ID)
+async def admin_take_item(message: Message):
+    parts = message.text.split()
+    if not parts[0].lower().startswith("-предмет") or len(parts) < 2:
+        return
+
+    try:
+        item_name = parts[1]
+        amount = int(parts[2]) if len(parts) > 2 else 1
+        target_id = message.reply_to_message.from_user.id
+        
+        async with aiosqlite.connect(DB_PATH) as db:
+            await db.execute("""
+                UPDATE inventory SET amount = MAX(0, amount - ?) 
+                WHERE user_id = ? AND item_name = ?
+            """, (amount, target_id, item_name))
+            await db.commit()
+        
+        await message.answer(f"🧹 Админ изъял у игрока предмет: <b>{item_name}</b> ({amount} шт.)", parse_mode="HTML")
+    except:
+        await message.answer("❌ Ошибка. Пример: <code>-предмет Шар 1</code>")
+
 
 # --- АДМИН ---
 @dp.message(F.reply_to_message, lambda m: m.from_user.id == ADMIN_ID)
