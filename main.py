@@ -118,17 +118,22 @@ class ClanStates(StatesGroup):
 
 # --- КЛАВИАТУРЫ ---
 def get_main_kb(chat_type):
-    buttons = [
-        [KeyboardButton(text="🎮 Играть"), KeyboardButton(text="👤 Профиль")],
-        [KeyboardButton(text="🏆 Рейтинг"), KeyboardButton(text="🎒 Инвентарь")], # Новая кнопка
-        [KeyboardButton(text="🎁 Бонус")]
-    ]
+    if chat_type == 'private':
+        # --- МЕНЮ ДЛЯ ЛИЧНЫХ СООБЩЕНИЙ ---
+        buttons = [
+            [KeyboardButton(text="🎮 Играть"), KeyboardButton(text="👤 Профиль")],
+            [KeyboardButton(text="🏆 Рейтинг"), KeyboardButton(text="🎒 Инвентарь")],
+            [KeyboardButton(text="🎁 Бонус")]
+        ]
+    else:
+        # --- МЕНЮ ДЛЯ ГРУПП (ЧАТОВ) ---
+        buttons = [
+            [KeyboardButton(text="🎮 Играть"), KeyboardButton(text="👤 Профиль")],
+            [KeyboardButton(text="📊 Ставки"), KeyboardButton(text="🚫 Отмена")]
+        ]
+    
     return ReplyKeyboardMarkup(keyboard=buttons, resize_keyboard=True)
 
-    return ReplyKeyboardMarkup(keyboard=[
-        [KeyboardButton(text="🎮 Играть"), KeyboardButton(text="👤 Профиль")],
-        [KeyboardButton(text="📊 Ставки"), KeyboardButton(text="🚫 Отмена")]
-    ], resize_keyboard=True)
 
 # --- КОМАНДЫ ---
 
