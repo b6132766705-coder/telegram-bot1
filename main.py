@@ -889,89 +889,76 @@ async def steal_money(message: Message):
     now = datetime.now()
 
     if stealer_id == victim_id:
-        return await message.answer("🤔 Пытаешься украсть у самого себя? Это уже самовнушение какое-то.")
+        return await message.answer("🤔 Грабить себя — это как-то подозрительно.")
 
     async with aiosqlite.connect(DB_PATH) as db:
-        # 1. Проверяем клеймо вора (кулдаун 3 часа)
-        async with db.execute("SELECT shame_mark FROM users WHERE id = ?", (stealer_id,)) as cur:
-            row = await cur.fetchone()
-            if row and row[0]:
-                shame_time = datetime.fromisoformat(row[0])
-                if now < shame_time:
-                    diff = shame_time - now
-                    h = diff.seconds // 3600
-                    m = (diff.seconds % 3600) // 60
-                    return await message.answer(f"🚫 <b>Клеймо вора!</b>\nТебя все еще ищет полиция. Подожди {h} ч. {m} мин.")
+        # 1. Проверяем баланс вора и его статус (клеймо)
+        async with db.execute("SELECT balance, shame_mark FROM users WHERE id = ?", (stealer_id,)) as cur:
+            stealer_data = await cur.fetchone()
+            if not stealer_data: return
+            
+            stealer_bal, shame_str = stealer_data
 
-        # 2. ПРОВЕРКА ЩИТА (Спасает и тратится)
+        # --- НОВАЯ ПРОВЕРКА: Есть ли 5000 на штраф? ---
+        if stealer_bal < 5000:
+            return await message.answer(
+                f"❌ <b>У тебя нет денег на штраф!</b>\n\n"
+                f"Чтобы воровать, нужно иметь хотя бы <b>{fmt(5000)}</b> Угадаек на случай, если тебя поймают.",
+                parse_mode="HTML"
+            )
+
+        # 2. Проверяем клеймо вора (3 часа)
+        if shame_str:
+            shame_time = datetime.fromisoformat(shame_str)
+            if now < shame_time:
+                diff = shame_time - now
+                h, m = diff.seconds // 3600, (diff.seconds % 3600) // 60
+                return await message.answer(f"🚫 Ты в розыске! Заляг на дно еще на {h} ч. {m} мин.")
+
+        # 3. ПРОВЕРКА ЩИТА ЖЕРТВЫ
         async with db.execute("SELECT amount FROM inventory WHERE user_id = ? AND item_name = 'Щит'", (victim_id,)) as cur:
             shield_row = await cur.fetchone()
         
         if shield_row and shield_row[0] > 0:
-            # Расходуем щит
             await db.execute("UPDATE inventory SET amount = amount - 1 WHERE user_id = ? AND item_name = 'Щит'", (victim_id,))
             await db.commit()
             return await message.answer(
-                f"🛡 <b>Щит сработал!</b>\n\nИгрок <b>{message.reply_to_message.from_user.first_name}</b> был защищен!\n"
-                f"У жертвы потрачен 1 <b>Щит</b>, а вор уходит ни с чем.",
+                f"🛡 <b>Щит сработал!</b>\n\nИгрок {message.reply_to_message.from_user.first_name} защищен.\n"
+                f"Один Щит потрачен, ты уходишь ни с чем.",
                 parse_mode="HTML"
             )
 
-        # 3. Расчет шанса успеха по времени активности
+        # 4. Данные жертвы и расчет шанса
         async with db.execute("SELECT balance, last_active FROM users WHERE id = ?", (victim_id,)) as cur:
             v_data = await cur.fetchone()
-            if not v_data: return
             v_bal, last_active_str = v_data
 
-        if v_bal < 5000:
-            return await message.answer("📦 Там нечего брать, пустые карманы.")
+        if v_bal < 1000:
+            return await message.answer("📦 Там нечего брать.")
 
-        # Логика процентов по твоей таблице
-        chance = 85 # По умолчанию (если данных нет или > 6 часов)
-        status_text = "жертва в глубоком офлайне"
+        # Таблица шансов по твоим условиям
+        chance = 85
+        status_text = "в глубоком офлайне"
 
         if last_active_str:
-            last_active = datetime.fromisoformat(last_active_str)
-            hours_passed = (now - last_active).total_seconds() / 3600
+            hours_passed = (now - datetime.fromisoformat(last_active_str)).total_seconds() / 3600
+            if hours_passed < 1: chance, status_text = 10, "онлайн/только вышел"
+            elif 1 <= hours_passed < 3: chance, status_text = 35, "отошел"
+            elif 3 <= hours_passed < 6: chance, status_text = 60, "крепко спит"
 
-            if hours_passed < 1:
-                chance = 10
-                status_text = "игрок онлайн или только что вышел"
-            elif 1 <= hours_passed < 3:
-                chance = 35
-                status_text = "игрок отошел"
-            elif 3 <= hours_passed < 6:
-                chance = 60
-                status_text = "игрок крепко спит"
-
-        # 4. Попытка кражи
+        # 5. Исход
         if random.randint(1, 100) <= chance:
-            # УСПЕХ: крадем от 10% до 30% баланса
             steal_amount = int(v_bal * random.uniform(0.1, 0.3))
             await db.execute("UPDATE users SET balance = balance - ? WHERE id = ?", (steal_amount, victim_id))
             await db.execute("UPDATE users SET balance = balance + ? WHERE id = ?", (steal_amount, stealer_id))
             await db.commit()
-            
-            await message.answer(
-                f"🥷 <b>Успешное ограбление!</b>\n"
-                f"Пока {status_text}, ты вынес <b>{fmt(steal_amount)}</b> Угадаек!",
-                parse_mode="HTML"
-            )
+            await message.answer(f"🥷 <b>Успех!</b>\nПока жертва ({status_text}), ты украл <b>{fmt(steal_amount)}</b>!", parse_mode="HTML")
         else:
-            # ПРОВАЛ: Штраф 5000 и клеймо на 3 часа
-            penalty = 5000
+            # Штраф и клеймо
             shame_until = (now + timedelta(hours=3)).isoformat()
-            
-            await db.execute("UPDATE users SET balance = MAX(0, balance - ?), shame_mark = ? WHERE id = ?", 
-                           (penalty, shame_until, stealer_id))
+            await db.execute("UPDATE users SET balance = balance - 5000, shame_mark = ? WHERE id = ?", (shame_until, stealer_id))
             await db.commit()
-            
-            await message.answer(
-                f"🚨 <b>ТЕБЯ ПОЙМАЛИ!</b>\n\n"
-                f"Штраф: <b>{fmt(penalty)}</b>\n"
-                f"Статус: <b>Клоун 🤡</b> на 3 часа (красть запрещено).",
-                parse_mode="HTML"
-            )
+            await message.answer(f"🚨 <b>Попался!</b>\nСписан штраф <b>5 000</b> и выдано клеймо 🤡 на 3 часа.", parse_mode="HTML")
 
 
 # --- АДМИН-ЧИТ: ОБНУЛЕНИЕ ТАЙМЕРОВ ---
