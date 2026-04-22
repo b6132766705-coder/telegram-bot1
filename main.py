@@ -317,6 +317,47 @@ async def show_inventory(message: Message):
     text += "\n<i>Предметы можно использовать или продать (скоро!)</i>"
     await message.answer(text, parse_mode="HTML")
 
+@dp.message(F.text.lower().startswith("использовать"))
+async def use_item(message: Message):
+    parts = message.text.split()
+    if len(parts) < 2:
+        return await message.answer("❓ Напиши название предмета. Пример: <code>использовать Шар</code>")
+
+    item_name = " ".join(parts[1:]).strip()
+    uid = message.from_user.id
+
+    async with aiosqlite.connect(DB_PATH) as db:
+        # Проверяем наличие предмета
+        async with db.execute("SELECT amount FROM inventory WHERE user_id = ? AND item_name = ?", (uid, item_name)) as cur:
+            row = await cur.fetchone()
+        
+        if not row or row[0] <= 0:
+            return await message.answer(f"❌ У тебя нет предмета «<b>{item_name}</b>»", parse_mode="HTML")
+
+        # --- ЛОГИКА ЭФФЕКТОВ ---
+        if item_name.lower() == "шар":
+            # Получаем текущий баланс
+            async with db.execute("SELECT balance FROM users WHERE id = ?", (uid,)) as cur:
+                user_row = await cur.fetchone()
+                current_balance = user_row[0]
+
+            new_balance = int(current_balance * 1.74)
+            profit = new_balance - current_balance
+            
+            # Обновляем баланс
+            await db.execute("UPDATE users SET balance = ? WHERE id = ?", (new_balance, uid))
+            result_text = f"🔮 <b>Магия Шара!</b>\n\nТвои Угадайки умножились на <b>1.74</b>!\n➕ Прибавка: <b>{fmt(profit)}</b>"
+        
+        else:
+            return await message.answer(f"⚙️ Предмет «<b>{item_name}</b>» пока не имеет активного эффекта.")
+
+        # Списываем 1 единицу предмета после использования
+        await db.execute("UPDATE inventory SET amount = amount - 1 WHERE user_id = ? AND item_name = ?", (uid, item_name))
+        await db.commit()
+
+    await message.answer(result_text, parse_mode="HTML")
+
+
 
 # --- НАГРАДА ЗА ПРИГЛАШЕНИЕ ---
 @dp.message(F.new_chat_members)
