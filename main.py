@@ -10,7 +10,6 @@ from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
-from aiogram import BaseMiddleware
 
 # --- НАСТРОЙКИ ---
 TOKEN = os.getenv("BOT_TOKEN")
@@ -22,25 +21,7 @@ logging.basicConfig(level=logging.INFO)
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
-# 2. ШПИОН АКТИВНОСТИ (Асинхронный)
-class ActivityMiddleware(BaseMiddleware):
-    async def __call__(self, handler, event, data):
-        if isinstance(event, Message) and event.from_user and not event.from_user.is_bot:
-            uid = event.from_user.id
-            name = event.from_user.full_name
-            now_str = datetime.now().isoformat()
-            
-            async with aiosqlite.connect(DB_PATH) as db:
-                await db.execute("""
-                    INSERT INTO users (id, name, last_active, balance) 
-                    VALUES (?, ?, ?, 10000) 
-                    ON CONFLICT(id) DO UPDATE SET last_active = ?, name = ?
-                """, (uid, name, now_str, now_str, name))
-                await db.commit()
-            
-        return await handler(event, data)
 
-dp.message.middleware(ActivityMiddleware())
 
 # --- ФУНКЦИИ ---
 async def init_db():
@@ -166,7 +147,6 @@ async def cmd_commands(message: Message):
         "• <code>го</code> — Запуск рулетки\n"
         "• <code>лог</code> — История игр\n"
         "• <code>дуэль [сумма]</code> — Вызвать на бой\n"
-        "• <code>украсть</code> — Ограбить игрока\n\n"
         
         "<b>🛡 Кланы:</b>\n"
         "• <code>клан</code> — Меню клана\n"
@@ -426,181 +406,8 @@ async def process_guess(message: Message, state: FSMContext):
         await message.answer(f"Попытки кончились! Это было {target}.", reply_markup=get_main_kb(message.chat.type))
         await state.clear()
 
-# ==========================================
-#               СИСТЕМА КЛАНОВ (ФИНАЛЬНАЯ)
-# ==========================================
-
-@dp.message(F.text.lower() == "клан")
-async def clan_info(message: Message, state: FSMContext):
-    uid = message.from_user.id
-    async with aiosqlite.connect(DB_PATH) as db:
-        async with db.execute("SELECT clan_id FROM users WHERE id = ?", (uid,)) as cur:
-            user_clan = await cur.fetchone()
-            clan_id = user_clan[0] if user_clan else None
-
-        if not clan_id:
-            kb = InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="🛠 Создать клан (20 000)", callback_data="start_clan_creation")]
-            ])
-            return await message.answer(
-                "🛡 <b>Ты не состоишь в клане.</b>\nХочешь создать свой собственный?\n\nИли напиши <code>Вступить [Название]</code>, чтобы подать заявку.",
-                reply_markup=kb, parse_mode="HTML"
-            )
-
-        async with db.execute("SELECT name, owner_id, balance FROM clans WHERE id = ?", (clan_id,)) as cur:
-            clan_data = await cur.fetchone()
-            if not clan_data: return
-            clan_name, owner_id, clan_bal = clan_data
-            
-        async with db.execute("SELECT COUNT(*) FROM users WHERE clan_id = ?", (clan_id,)) as cur:
-            members_count = (await cur.fetchone())[0]
-
-    role = "👑 Лидер" if uid == owner_id else "👤 Участник"
-    await message.answer(
-        f"🛡 <b>Клан:</b> {clan_name}\n"
-        f"👥 <b>Участников:</b> {members_count}\n"
-        f"💰 <b>Казна:</b> {fmt(clan_bal)} Угадаек\n\n"
-        f"Твоя роль: {role}\n\n"
-        f"<i>Команды:\n• Покинуть клан\n• В казну [Сумма]\n• Из казны [Сумма] (только Лидер)</i>", 
-        parse_mode="HTML"
-    )
-
-@dp.callback_query(F.data == "start_clan_creation")
-async def clan_creation_start(call: CallbackQuery, state: FSMContext):
-    res = await get_user(call.from_user.id, call.from_user.full_name)
-    if res[0] < 20000:
-        return await call.answer("❌ Нужно 200 000 Угадаек!", show_alert=True)
-
-    await call.message.edit_text("📝 Введи название для клана (до 20 символов):")
-    await state.set_state(ClanStates.waiting_for_name)
-    await call.answer()
-@dp.message(ClanStates.waiting_for_name)
-async def process_clan_name(message: Message, state: FSMContext):
-    uid, clan_name = message.from_user.id, message.text.strip()
-    if len(clan_name) > 20: return await message.answer("❌ Слишком длинное название!")
-
-    async with aiosqlite.connect(DB_PATH) as db:
-        async with db.execute("SELECT id FROM clans WHERE name = ?", (clan_name,)) as cur:
-            if await cur.fetchone(): return await message.answer("❌ Название занято!")
-
-        await update_balance(uid, -20000)
-        await db.execute("INSERT INTO clans (name, owner_id, balance) VALUES (?, ?, 0)", (clan_name, uid))
-        async with db.execute("SELECT last_insert_rowid()") as cur:
-            new_id = (await cur.fetchone())[0]
-        await db.execute("UPDATE users SET clan_id = ? WHERE id = ?", (new_id, uid))
-        await db.commit()
-
-    await state.clear()
-    await message.answer(f"🛡 Клан <b>{clan_name}</b> создан!", parse_mode="HTML")
-
-@dp.message(F.text.lower().startswith("вступить "))
-async def request_join(message: Message):
-    uid, clan_name = message.from_user.id, message.text[9:].strip()
-    async with aiosqlite.connect(DB_PATH) as db:
-        async with db.execute("SELECT clan_id FROM users WHERE id = ?", (uid,)) as cur:
-            if (await cur.fetchone())[0]: return await message.answer("❌ Ты уже в клане!")
-        
-        async with db.execute("SELECT id, owner_id FROM clans WHERE name = ?", (clan_name,)) as cur:
-            data = await cur.fetchone()
-            if not data: return await message.answer("❌ Клан не найден.")
-            cid, oid = data
-
-    kb = InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(text="✅ Принять", callback_data=f"c_acc_{uid}_{cid}"),
-        InlineKeyboardButton(text="❌ Отклонить", callback_data=f"c_rej_{uid}_{cid}")
-    ]])
-    await message.answer(f"🔔 Лидер! Игрок {message.from_user.first_name} хочет в клан <b>{clan_name}</b>", reply_markup=kb, parse_mode="HTML")
-
-@dp.callback_query(F.data.startswith("c_acc_") | F.data.startswith("c_rej_"))
-async def clan_decision(call: CallbackQuery):
-    act, target_id, cid = call.data.split("_")[1], int(call.data.split("_")[2]), int(call.data.split("_")[3])
-    async with aiosqlite.connect(DB_PATH) as db:
-        async with db.execute("SELECT owner_id FROM clans WHERE id = ?", (cid,)) as cur:
-            if (await cur.fetchone())[0] != call.from_user.id:
-                return await call.answer("❌ Ты не лидер!", show_alert=True)
-        
-        if act == "acc":
-            await db.execute("UPDATE users SET clan_id = ? WHERE id = ?", (cid, target_id))
-            await db.commit()
-            await call.message.edit_text("✅ Игрок принят!")
-        else:
-            await call.message.edit_text("❌ Заявка отклонена.")
 
 
-    await call.answer()
-
-
-# --- СТАРЫЕ ФУНКЦИИ КАЗНЫ И ВЫХОДА ИЗ КЛАНА (Без изменений) ---
-@dp.message(F.text.lower() == "покинуть клан")
-async def leave_clan(message: Message):
-    uid = message.from_user.id
-    async with aiosqlite.connect(DB_PATH) as db:
-        async with db.execute("SELECT clan_id FROM users WHERE id = ?", (uid,)) as cur:
-            user_data = await cur.fetchone()
-            if not user_data or not user_data[0]:
-                return await message.answer("❌ Ты и так не состоишь в клане.")
-            clan_id = user_data[0]
-            
-        async with db.execute("SELECT owner_id FROM clans WHERE id = ?", (clan_id,)) as cur:
-            if (await cur.fetchone())[0] == uid:
-                return await message.answer("❌ Ты лидер клана! Лидер не может просто так уйти. (Функция распуска клана пока не добавлена)")
-
-        await db.execute("UPDATE users SET clan_id = NULL WHERE id = ?", (uid,))
-        await db.commit()
-    await message.answer("🏃 Ты покинул клан.")
-
-@dp.message(F.text.lower().startswith("в казну "))
-async def clan_deposit(message: Message):
-    uid = message.from_user.id
-    try:
-        amount = int(message.text[8:].strip())
-        if amount <= 0: return
-    except: return
-
-    res = await get_user(uid, message.from_user.full_name)
-    if res[0] < amount:
-        return await message.answer("❌ У тебя нет столько Угадаек!")
-
-    async with aiosqlite.connect(DB_PATH) as db:
-        async with db.execute("SELECT clan_id FROM users WHERE id = ?", (uid,)) as cur:
-            user_data = await cur.fetchone()
-            if not user_data or not user_data[0]: return await message.answer("❌ Ты не состоишь в клане.")
-            clan_id = user_data[0]
-
-        await update_balance(uid, -amount)
-        await db.execute("UPDATE clans SET balance = balance + ? WHERE id = ?", (amount, clan_id))
-        await db.commit()
-        
-    await message.answer(f"📥 Ты пожертвовал <b>{fmt(amount)}</b> Угадаек в казну клана!", parse_mode="HTML")
-
-@dp.message(F.text.lower().startswith("из казны "))
-async def clan_withdraw(message: Message):
-    uid = message.from_user.id
-    try:
-        amount = int(message.text[9:].strip())
-        if amount <= 0: return
-    except: return
-
-    async with aiosqlite.connect(DB_PATH) as db:
-        async with db.execute("SELECT clan_id FROM users WHERE id = ?", (uid,)) as cur:
-            user_data = await cur.fetchone()
-            if not user_data or not user_data[0]: return await message.answer("❌ Ты не состоишь в клане.")
-            clan_id = user_data[0]
-
-        async with db.execute("SELECT owner_id, balance FROM clans WHERE id = ?", (clan_id,)) as cur:
-            owner_id, clan_bal = await cur.fetchone()
-
-        if uid != owner_id:
-            return await message.answer("❌ Брать деньги из казны может только Лидер клана!")
-
-        if clan_bal < amount:
-            return await message.answer(f"❌ В казне клана нет столько денег! Там всего {fmt(clan_bal)}.")
-
-        await db.execute("UPDATE clans SET balance = balance - ? WHERE id = ?", (amount, clan_id))
-        await update_balance(uid, amount)
-        await db.commit()
-
-    await message.answer(f"📤 Лидер забрал <b>{fmt(amount)}</b> Угадаек из казны клана.", parse_mode="HTML")
 
 
 # --- РУЛЕТКА ---
@@ -881,85 +688,6 @@ async def accept_duel(message: Message):
         parse_mode="HTML", reply_markup=get_main_kb(message.chat.type)
     )
 
-# --- ИГРА: ВОРОВСТВО ---
-@dp.message(F.text.lower() == "украсть", F.reply_to_message)
-async def steal_money(message: Message):
-    stealer_id = message.from_user.id
-    victim_id = message.reply_to_message.from_user.id
-    now = datetime.now()
-
-    if stealer_id == victim_id:
-        return await message.answer("🤔 Грабить себя — это как-то подозрительно.")
-
-    async with aiosqlite.connect(DB_PATH) as db:
-        # 1. Проверяем баланс вора и его статус (клеймо)
-        async with db.execute("SELECT balance, shame_mark FROM users WHERE id = ?", (stealer_id,)) as cur:
-            stealer_data = await cur.fetchone()
-            if not stealer_data: return
-            
-            stealer_bal, shame_str = stealer_data
-
-        # --- НОВАЯ ПРОВЕРКА: Есть ли 5000 на штраф? ---
-        if stealer_bal < 5000:
-            return await message.answer(
-                f"❌ <b>У тебя нет денег на штраф!</b>\n\n"
-                f"Чтобы воровать, нужно иметь хотя бы <b>{fmt(5000)}</b> Угадаек на случай, если тебя поймают.",
-                parse_mode="HTML"
-            )
-
-        # 2. Проверяем клеймо вора (3 часа)
-        if shame_str:
-            shame_time = datetime.fromisoformat(shame_str)
-            if now < shame_time:
-                diff = shame_time - now
-                h, m = diff.seconds // 3600, (diff.seconds % 3600) // 60
-                return await message.answer(f"🚫 Ты в розыске! Заляг на дно еще на {h} ч. {m} мин.")
-
-        # 3. ПРОВЕРКА ЩИТА ЖЕРТВЫ
-        async with db.execute("SELECT amount FROM inventory WHERE user_id = ? AND item_name = 'Щит'", (victim_id,)) as cur:
-            shield_row = await cur.fetchone()
-        
-        if shield_row and shield_row[0] > 0:
-            await db.execute("UPDATE inventory SET amount = amount - 1 WHERE user_id = ? AND item_name = 'Щит'", (victim_id,))
-            await db.commit()
-            return await message.answer(
-                f"🛡 <b>Щит сработал!</b>\n\nИгрок {message.reply_to_message.from_user.first_name} защищен.\n"
-                f"Один Щит потрачен, ты уходишь ни с чем.",
-                parse_mode="HTML"
-            )
-
-        # 4. Данные жертвы и расчет шанса
-        async with db.execute("SELECT balance, last_active FROM users WHERE id = ?", (victim_id,)) as cur:
-            v_data = await cur.fetchone()
-            v_bal, last_active_str = v_data
-
-        if v_bal < 1000:
-            return await message.answer("📦 Там нечего брать.")
-
-        # Таблица шансов по твоим условиям
-        chance = 85
-        status_text = "в глубоком офлайне"
-
-        if last_active_str:
-            hours_passed = (now - datetime.fromisoformat(last_active_str)).total_seconds() / 3600
-            if hours_passed < 1: chance, status_text = 10, "онлайн/только вышел"
-            elif 1 <= hours_passed < 3: chance, status_text = 35, "отошел"
-            elif 3 <= hours_passed < 6: chance, status_text = 60, "крепко спит"
-
-        # 5. Исход
-        if random.randint(1, 100) <= chance:
-            steal_amount = int(v_bal * random.uniform(0.1, 0.3))
-            await db.execute("UPDATE users SET balance = balance - ? WHERE id = ?", (steal_amount, victim_id))
-            await db.execute("UPDATE users SET balance = balance + ? WHERE id = ?", (steal_amount, stealer_id))
-            await db.commit()
-            await message.answer(f"🥷 <b>Успех!</b>\nПока жертва ({status_text}), ты украл <b>{fmt(steal_amount)}</b>!", parse_mode="HTML")
-        else:
-            # Штраф и клеймо
-            shame_until = (now + timedelta(hours=3)).isoformat()
-            await db.execute("UPDATE users SET balance = balance - 5000, shame_mark = ? WHERE id = ?", (shame_until, stealer_id))
-            await db.commit()
-            await message.answer(f"🚨 <b>Попался!</b>\nСписан штраф <b>5 000</b> и выдано клеймо 🤡 на 3 часа.", parse_mode="HTML")
-
 
 # --- АДМИН-ЧИТ: ОБНУЛЕНИЕ ТАЙМЕРОВ ---
 @dp.message(lambda m: m.text and m.text.lower().startswith("обнулить"))
@@ -1042,16 +770,6 @@ async def admin_balance_change(message: Message):
 
 
 
-
-# --- АДМИН ---
-@dp.message(F.reply_to_message, lambda m: m.from_user.id == ADMIN_ID)
-async def admin_power(message: Message):
-    if message.text.startswith(("+", "-")):
-        try:
-            val = int(message.text.replace(" ", ""))
-            await update_balance(message.reply_to_message.from_user.id, val)
-            await message.answer(f"👑 Изменено на {fmt(val)}")
-        except: pass
 
 # --- ЗАПУСК ---
 async def main():
