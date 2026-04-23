@@ -291,6 +291,32 @@ async def show_inventory(message: Message):
     text = "🎒 <b>Твой инвентарь:</b>\n" + "\n".join([f"• {n} — {a} шт." for n, a in items])
     await message.answer(text, parse_mode="HTML")
 
+@dp.message(F.text.lower() == "лог")
+async def show_log(message: Message):
+    # Лог обычно смотрят в группах, чтобы видеть результаты последних игр
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute("SELECT number FROM history ORDER BY rowid DESC LIMIT 10") as cursor:
+            res = await cursor.fetchall()
+            
+    if not res: 
+        return await message.answer("📜 История игр пока пуста.")
+    
+    out = "📜 <b>Последние 10 чисел:</b>\n\n"
+    for i, row in enumerate(res, 1):
+        n = row[0]
+        # Определяем цвет для красоты
+        if n == 0:
+            col = "🟢 ЗЕРО"
+        elif n % 2 == 0:
+            col = "🔴 КРАСНОЕ"
+        else:
+            col = "⚫ ЧЁРНОЕ"
+            
+        out += f"{i}. 🎰 {col} {n}\n"
+    
+    await message.answer(out, parse_mode="HTML")
+
+
 # --- АДМИН-ПАНЕЛЬ ---
 @dp.message(F.reply_to_message, lambda m: m.from_user.id == ADMIN_ID)
 async def admin_tools(message: Message):
