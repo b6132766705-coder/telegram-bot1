@@ -406,7 +406,168 @@ async def process_guess(message: Message, state: FSMContext):
         await message.answer(f"Попытки кончились! Это было {target}.", reply_markup=get_main_kb(message.chat.type))
         await state.clear()
 
+# --- КЛАНЫ ---
 
+@dp.message(F.text.lower() == "клан")
+async def clan_menu(message: Message, state: FSMContext):
+    uid = message.from_user.id
+    
+    async with aiosqlite.connect(DB_PATH) as db:
+        # Узнаем, в клане ли игрок
+        async with db.execute("SELECT clan_id FROM users WHERE id = ?", (uid,)) as cur:
+            user_data = await cur.fetchone()
+            
+        clan_id = user_data[0] if user_data else None
+        
+        if not clan_id:
+            text = (
+                "🛡 <b>Кланы</b>\n\n"
+                "Ты пока не состоишь в клане.\n\n"
+                "🔹 Чтобы создать свой клан (цена: 20 000), напиши: <code>создать клан</code>\n"
+                "🔹 Чтобы вступить в существующий, напиши: <code>вступить [Имя Клана]</code>"
+            )
+            return await message.answer(text, parse_mode="HTML")
+            
+        # Если в клане, достаем инфу
+        async with db.execute("SELECT name, owner_id, balance FROM clans WHERE id = ?", (clan_id,)) as cur:
+            clan_data = await cur.fetchone()
+            
+        if not clan_data:
+            # Если произошел баг и клан удален
+            await db.execute("UPDATE users SET clan_id = NULL WHERE id = ?", (uid,))
+            await db.commit()
+            return await message.answer(" Твой клан был распущен.")
+            
+        c_name, c_owner, c_bal = clan_data
+        
+        # Считаем участников
+        async with db.execute("SELECT COUNT(id) FROM users WHERE clan_id = ?", (clan_id,)) as cur:
+            members_count = (await cur.fetchone())[0]
+            
+        role = "👑 Лидер" if uid == c_owner else "👤 Участник"
+        
+        text = (
+            f"🛡 <b>Клан: {c_name}</b>\n"
+            f"Твоя роль: {role}\n"
+            f"👥 Участников: {members_count}\n"
+            f"💰 Казна: {fmt(c_bal)} Угадаек\n\n"
+            f"<i>Пополнить казну: <code>в казну [сумма]</code>\n"
+            f"Покинуть клан: <code>покинуть клан</code></i>"
+        )
+        await message.answer(text, parse_mode="HTML")
+
+# --- СОЗДАНИЕ КЛАНА ---
+@dp.message(F.text.lower() == "создать клан")
+async def create_clan_start(message: Message, state: FSMContext):
+    uid = message.from_user.id
+    
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute("SELECT balance, clan_id FROM users WHERE id = ?", (uid,)) as cur:
+            bal, c_id = await cur.fetchone()
+            
+        if c_id:
+            return await message.answer("❌ Ты уже состоишь в клане! Сначала покинь его.")
+        if bal < 20000:
+            return await message.answer("❌ Создание клана стоит 20 000 Угадаек. Накопи еще немного!")
+            
+    await state.set_state(ClanStates.waiting_for_name)
+    await message.answer("🛡 Введи название для своего нового клана (до 20 символов):", reply_markup=ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text="🚫 Отмена")]], resize_keyboard=True))
+
+@dp.message(ClanStates.waiting_for_name)
+async def create_clan_finish(message: Message, state: FSMContext):
+    if message.text == "🚫 Отмена":
+        await state.clear()
+        return await message.answer("Создание клана отменено.", reply_markup=get_main_kb(message.chat.type))
+        
+    clan_name = message.text.strip()
+    if len(clan_name) > 20:
+        return await message.answer("Слишком длинное название! Придумай что-то короче (до 20 символов).")
+        
+    uid = message.from_user.id
+    
+    async with aiosqlite.connect(DB_PATH) as db:
+        # Проверяем, не занято ли имя
+        async with db.execute("SELECT id FROM clans WHERE name = ?", (clan_name,)) as cur:
+            if await cur.fetchone():
+                return await message.answer("❌ Клан с таким названием уже существует! Придумай другое.")
+                
+        # Списываем деньги и создаем
+        await db.execute("UPDATE users SET balance = balance - 20000 WHERE id = ?", (uid,))
+        cursor = await db.execute("INSERT INTO clans (name, owner_id, balance) VALUES (?, ?, 0)", (clan_name, uid))
+        new_clan_id = cursor.lastrowid
+        await db.execute("UPDATE users SET clan_id = ? WHERE id = ?", (new_clan_id, uid))
+        await db.commit()
+        
+    await state.clear()
+    await message.answer(f"🎉 <b>Клан «{clan_name}» успешно создан!</b>\nТеперь ты лидер.", reply_markup=get_main_kb(message.chat.type), parse_mode="HTML")
+
+# --- ВСТУПЛЕНИЕ В КЛАН ---
+@dp.message(F.text.lower().startswith("вступить "))
+async def join_clan(message: Message):
+    uid = message.from_user.id
+    clan_name = message.text[9:].strip() # Отрезаем слово "вступить "
+    
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute("SELECT clan_id FROM users WHERE id = ?", (uid,)) as cur:
+            if (await cur.fetchone())[0]:
+                return await message.answer("❌ Ты уже состоишь в клане!")
+                
+        async with db.execute("SELECT id FROM clans WHERE name = ?", (clan_name,)) as cur:
+            clan_data = await cur.fetchone()
+            
+        if not clan_data:
+            return await message.answer(f"❌ Клан «{clan_name}» не найден. Проверь название.")
+            
+        await db.execute("UPDATE users SET clan_id = ? WHERE id = ?", (clan_data[0], uid))
+        await db.commit()
+        
+    await message.answer(f"✅ Ты успешно вступил в клан <b>{clan_name}</b>!", parse_mode="HTML")
+
+# --- ПОПОЛНЕНИЕ КАЗНЫ И ВЫХОД ---
+@dp.message(F.text.lower().startswith("в казну "))
+async def donate_to_clan(message: Message):
+    try:
+        amount = int(message.text.split()[2])
+        if amount <= 0: return
+    except:
+        return
+        
+    uid = message.from_user.id
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute("SELECT balance, clan_id FROM users WHERE id = ?", (uid,)) as cur:
+            user_data = await cur.fetchone()
+            
+        if not user_data[1]:
+            return await message.answer("❌ Ты не состоишь в клане!")
+        if user_data[0] < amount:
+            return await message.answer("❌ Недостаточно Угадаек на балансе.")
+            
+        # Переводим деньги
+        await db.execute("UPDATE users SET balance = balance - ? WHERE id = ?", (amount, uid))
+        await db.execute("UPDATE clans SET balance = balance + ? WHERE id = ?", (amount, user_data[1]))
+        await db.commit()
+        
+    await message.answer(f"💰 Ты пожертвовал <b>{fmt(amount)}</b> Угадаек в казну клана!", parse_mode="HTML")
+
+@dp.message(F.text.lower() == "покинуть клан")
+async def leave_clan(message: Message):
+    uid = message.from_user.id
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute("SELECT clan_id FROM users WHERE id = ?", (uid,)) as cur:
+            c_id = (await cur.fetchone())[0]
+            
+        if not c_id: return
+        
+        async with db.execute("SELECT owner_id FROM clans WHERE id = ?", (c_id,)) as cur:
+            owner_id = (await cur.fetchone())[0]
+            
+        if uid == owner_id:
+            return await message.answer("👑 Лидер не может просто так покинуть клан! (Функция роспуска клана в разработке)")
+            
+        await db.execute("UPDATE users SET clan_id = NULL WHERE id = ?", (uid,))
+        await db.commit()
+        
+    await message.answer("🚪 Ты покинул клан.")
 
 
 
