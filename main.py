@@ -446,14 +446,16 @@ async def clan_menu(message: Message, state: FSMContext):
             
         role = "👑 Лидер" if uid == c_owner else "👤 Участник"
         
-        text = (
+      text = (
             f"🛡 <b>Клан: {c_name}</b>\n"
             f"Твоя роль: {role}\n"
             f"👥 Участников: {members_count}\n"
             f"💰 Казна: {fmt(c_bal)} Угадаек\n\n"
             f"<i>Пополнить казну: <code>в казну [сумма]</code>\n"
-            f"Покинуть клан: <code>покинуть клан</code></i>"
         )
+        if uid == c_owner:
+            text += "Снять из казны: <code>из казны [сумма]</code>\n"
+        text += "Покинуть клан: <code>покинуть клан</code></i>"
         await message.answer(text, parse_mode="HTML")
 
 # --- СОЗДАНИЕ КЛАНА ---
@@ -548,6 +550,50 @@ async def donate_to_clan(message: Message):
         await db.commit()
         
     await message.answer(f"💰 Ты пожертвовал <b>{fmt(amount)}</b> Угадаек в казну клана!", parse_mode="HTML")
+
+@dp.message(F.text.lower().startswith("из казны "))
+async def withdraw_from_clan(message: Message):
+    try:
+        # Команда состоит из 3 слов: "из" [0], "казны" [1], "сумма" [2]
+        amount = int(message.text.split()[2])
+        if amount <= 0: return
+    except:
+        return await message.answer("❓ Правильный формат: <code>из казны 1000</code>", parse_mode="HTML")
+        
+    uid = message.from_user.id
+    
+    async with aiosqlite.connect(DB_PATH) as db:
+        # 1. Узнаем, в каком клане игрок
+        async with db.execute("SELECT clan_id FROM users WHERE id = ?", (uid,)) as cur:
+            user_data = await cur.fetchone()
+            
+        if not user_data or not user_data[0]:
+            return await message.answer("❌ Ты не состоишь в клане!")
+            
+        clan_id = user_data[0]
+        
+        # 2. Узнаем, кто лидер и сколько денег в казне
+        async with db.execute("SELECT owner_id, balance FROM clans WHERE id = ?", (clan_id,)) as cur:
+            clan_data = await cur.fetchone()
+            
+        if not clan_data:
+            return
+            
+        owner_id, clan_balance = clan_data
+        
+        # 3. Проверки прав и баланса
+        if uid != owner_id:
+            return await message.answer("❌ Только <b>Лидер</b> может брать деньги из казны!", parse_mode="HTML")
+            
+        if clan_balance < amount:
+            return await message.answer(f"❌ В казне недостаточно средств! Доступно: <b>{fmt(clan_balance)}</b>", parse_mode="HTML")
+            
+        # 4. Переводим деньги из клана лидеру
+        await db.execute("UPDATE clans SET balance = balance - ? WHERE id = ?", (amount, clan_id))
+        await db.execute("UPDATE users SET balance = balance + ? WHERE id = ?", (amount, uid))
+        await db.commit()
+        
+    await message.answer(f"👑 Ты вывел <b>{fmt(amount)}</b> Угадаек из казны клана в свой карман!", parse_mode="HTML")
 
 @dp.message(F.text.lower() == "покинуть клан")
 async def leave_clan(message: Message):
