@@ -36,11 +36,14 @@ async def init_db():
                         last_steal TEXT, shame_mark TEXT)''')
         
         # НОВАЯ ТАБЛИЦА КЛАНОВ
-        await db.execute('''CREATE TABLE IF NOT EXISTS clans 
-                           (id INTEGER PRIMARY KEY AUTOINCREMENT, 
-                            name TEXT UNIQUE, 
-                            owner_id INTEGER, 
-                            balance INTEGER DEFAULT 0)''')
+      async with db.execute("""
+    CREATE TABLE IF NOT EXISTS clan_requests (
+        user_id INTEGER,
+        clan_id INTEGER,
+        PRIMARY KEY (user_id, clan_id)
+    )
+"""):
+    pass
         
         # Безопасное добавление колонок
         cols = ["name", "last_active", "last_steal", "shame_mark", "clan_id"] 
