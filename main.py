@@ -783,56 +783,50 @@ async def spin(message: Message):
         return await message.answer("🎰 В рулетку можно играть только в группах!")
     
     cid = message.chat.id
-    uid = message.from_user.id # ID того, кто написал "го"
-
-    # 1. Проверяем, есть ли вообще ставки в этом чате
     if cid not in pending_bets or not pending_bets[cid]:
-        return await message.answer("🎰 Ставок пока нет! Сначала сделайте ставку.")
+        return await message.answer("🎰 Ставок пока нет! Напишите сумму и число (например: 1000 к).")
 
-    # 2. ПРОВЕРКА: Делал ли ставку именно этот игрок?
-    user_has_bet = any(bet['user_id'] == uid for bet in pending_bets[cid])
+    # Крутим колесо
+    res_num = random.randint(0, 36)
     
-    if not user_has_bet:
-        return await message.answer(f"❌ {message.from_user.first_name}, ты не можешь запустить рулетку, так как не сделал ставку!")
+    # Определяем цвет
+    red = [1,3,5,7,9,12,14,16,18,19,21,23,25,27,30,32,34,36]
+    res_color = "🔴 Красное" if res_num in red else "⚫ Черное"
+    if res_num == 0: res_color = "🟢 Зеро"
 
-    # --- Дальше идет обычный код вращения ---
-    win_num = random.randint(0, 36)
-    
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute("INSERT INTO history (number) VALUES (?)", (win_num,))
-        await db.commit()
-    
-    col_em = "🟢" if win_num == 0 else ("🔴" if win_num % 2 == 0 else "⚫")
-    col_txt = "ЗЕРО" if win_num == 0 else ("КРАСНОЕ" if win_num % 2 == 0 else "ЧЁРНОЕ")
-    res_text = f"🎰 {col_em} {col_txt} {win_num}\n\n"
-    
-    users_results = {} 
+    text = f"🎰 <b>Рулетка крутится...</b>\n\nВыпало: <b>{res_num} ({res_color})</b>\n\n"
+    results = []
+
     for bet in pending_bets[cid]:
-        u_id = bet['user_id']
-        if u_id not in users_results:
-            users_results[u_id] = {"name": bet['name'], "results": [], "total_win": 0, "total_spent": 0}
-        
-        users_results[u_id]["total_spent"] += bet['amount'] * len(bet['targets'])
-        for t in bet['targets']:
+        win_amount = 0
+        for target in bet['targets']:
             is_win = False
             mult = 0
-            if t in ["к", "кр", "красное"] and win_num != 0 and win_num % 2 == 0: is_win, mult = True, 2
-            elif t in ["ч", "чр", "черное"] and win_num % 2 != 0: is_win, mult = True, 2
-            elif t == "чет" and win_num != 0 and win_num % 2 == 0: is_win, mult = True, 2
-            elif t == "нечет" and win_num % 2 != 0: is_win, mult = True, 2
-            elif "-" in t:
-                try:
-                    l, h = map(int, t.split("-")); 
-                    if l <= win_num <= h: is_win, mult = True, 36/(h-l+1)
-                except: pass
-            elif t.isdigit() and int(t) == win_num: is_win, mult = True, 36
             
+            # Логика выигрыша
+            if target.isdigit() and int(target) == res_num:
+                is_win, mult = True, 36
+            elif target in ["к", "кр", "красное"] and res_num in red:
+                is_win, mult = True, 2
+            elif target in ["ч", "чр", "черное"] and res_num != 0 and res_num not in red:
+                is_win, mult = True, 2
+            elif target == "чет" and res_num != 0 and res_num % 2 == 0:
+                is_win, mult = True, 2
+            elif target == "нечет" and res_num % 2 != 0:
+                is_win, mult = True, 2
+
             if is_win:
-                win_v = int(bet['amount'] * mult)
-                users_results[u_id]["total_win"] += win_v
-                users_results[u_id]["results"].append(f"✅ {fmt(bet['amount'])} ➔ {t} (+{fmt(win_v)})")
-            else:
-                users_results[u_id]["results"].append(f"❌ {fmt(bet['amount'])} ➔ {t}")
+                win_amount += bet['amount'] * mult
+
+        if win_amount > 0:
+            await update_balance(bet['user_id'], win_amount)
+            results.append(f"✅ {bet['name']} выиграл <b>{fmt(win_amount)}</b>")
+        else:
+            results.append(f"❌ {bet['name']} проиграл")
+
+    text += "\n".join(results)
+    pending_bets[cid] = [] # Очищаем ставки после игры
+    await message.answer(text, parse_mode="HTML")
 
     for u_id, data in users_results.items():
         res_text += f"👤 {data['name']}:\n" + "\n".join(data['results']) + "\n"
