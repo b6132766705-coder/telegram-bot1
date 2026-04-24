@@ -507,26 +507,59 @@ async def create_clan_finish(message: Message, state: FSMContext):
     await message.answer(f"🎉 <b>Клан «{clan_name}» успешно создан!</b>\nТеперь ты лидер.", reply_markup=get_main_kb(message.chat.type), parse_mode="HTML")
 
 # --- ВСТУПЛЕНИЕ В КЛАН ---
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+
 @dp.message(F.text.lower().startswith("вступить "))
-async def join_clan(message: Message):
+async def join_request(message: Message):
     uid = message.from_user.id
-    clan_name = message.text[9:].strip() # Отрезаем слово "вступить "
+    clan_name = message.text[9:].strip()
     
     async with aiosqlite.connect(DB_PATH) as db:
+        # 1. Проверяем, не в клане ли уже игрок
         async with db.execute("SELECT clan_id FROM users WHERE id = ?", (uid,)) as cur:
             if (await cur.fetchone())[0]:
                 return await message.answer("❌ Ты уже состоишь в клане!")
                 
-        async with db.execute("SELECT id FROM clans WHERE name = ?", (clan_name,)) as cur:
+        # 2. Ищем клан
+        async with db.execute("SELECT id, owner_id, name FROM clans WHERE name = ?", (clan_name,)) as cur:
             clan_data = await cur.fetchone()
             
         if not clan_data:
-            return await message.answer(f"❌ Клан «{clan_name}» не найден. Проверь название.")
+            return await message.answer(f"❌ Клан «{clan_name}» не найден.")
             
-        await db.execute("UPDATE users SET clan_id = ? WHERE id = ?", (clan_data[0], uid))
-        await db.commit()
+        clan_id, owner_id, c_name = clan_data
+
+        # 3. Проверяем количество участников (лимит 10)
+        async with db.execute("SELECT COUNT(id) FROM users WHERE clan_id = ?", (clan_id,)) as cur:
+            count = (await cur.fetchone())[0]
+            if count >= 10:
+                return await message.answer("❌ В этом клане уже достигнут лимит участников (10/10).")
+
+        # 4. Создаем заявку в базе
+        try:
+            await db.execute("INSERT INTO clan_requests (user_id, clan_id) VALUES (?, ?)", (uid, clan_id))
+            await db.commit()
+        except aiosqlite.IntegrityError:
+            return await message.answer("⏳ Ты уже отправил заявку в этот клан. Жди ответа лидера.")
+
+        # 5. Уведомляем лидера
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [
+                InlineKeyboardButton(text="✅ Принять", callback_data=f"clan_accept:{uid}"),
+                InlineKeyboardButton(text="❌ Отклонить", callback_data=f"clan_decline:{uid}")
+            ]
+        ])
         
-    await message.answer(f"✅ Ты успешно вступил в клан <b>{clan_name}</b>!", parse_mode="HTML")
+        try:
+            await bot.send_message(
+                owner_id, 
+                f"🔔 <b>Новая заявка в клан!</b>\nИгрок {message.from_user.full_name} хочет вступить в твой клан «{c_name}».",
+                reply_markup=keyboard,
+                parse_mode="HTML"
+            )
+            await message.answer(f"✅ Заявка в клан <b>{c_name}</b> отправлена лидеру!", parse_mode="HTML")
+        except Exception:
+            await message.answer("❌ Не удалось отправить уведомление лидеру (возможно, бот у него заблокирован).")
 
 # --- ПОПОЛНЕНИЕ КАЗНЫ И ВЫХОД ---
 @dp.message(F.text.lower().startswith("в казну "))
